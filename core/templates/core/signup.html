@@ -1,0 +1,52 @@
+{% load static %}
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sign Up - Happy Holiday</title>
+    <link rel="stylesheet" href="{% static "core/signup.css" %}">
+</head>
+<body>
+    <div class="nav-icons" style="position: absolute; top: 10px; left: 10px;">
+        <a href="" style="margin-right: 15px;"><img src="{% static "core/left-sign.png" %}" width="30" height="30" alt="Back"></a>
+        <a href="{% url "home" %}"><img src="{% static "core/home-sign.png" %}" width="30" height="30" alt="Home"></a>
+    </div>    
+    <div class="signup-page">
+        <div class="signup-left">
+            <div class="welcome-text">
+                <h1>Welcome to<br>Happy Holiday!</h1>
+            </div>
+        </div>
+        <div class="signup-right">
+            <div class="auth-container">
+                <h2>Hello!</h2>
+                <p class='message-welcome'>Sign Up to Get Started</p>
+                
+                <form id="signupForm" method='POST' novalidate>
+                    {% csrf_token %}
+                    {% for item in form %}
+                        <div class="form-item">   
+                            {% if item.errors %}
+                                <div class="error-message">
+                                    {{ item }}
+                                    {% for error in item.errors %}
+                                        <p class="error">{{ error }}</p>
+                                    {% endfor %}
+                                </div>
+                            {% else %}
+                                {{ item }}
+                                <p class="error"></p>
+                            {% endif %}
+                        </div>
+                    {% endfor %}
+                    <button type="submit" class="btn">Register</button>
+                </form>         
+            </div>
+        </div>
+    </div>
+
+    
+</body>
+</html>

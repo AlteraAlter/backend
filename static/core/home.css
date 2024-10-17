@@ -1,0 +1,143 @@
+/* General Reset */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Poppins', sans-serif; /* Main font for the body */
+    background-color: #f4f4f4;
+    color: #333;
+    height: 100vh;
+}
+
+/* Header and navigation bar */
+.header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center; /* Aligns content closer to the bottom */
+    padding: 10px 50px;
+    background: linear-gradient(to bottom, #e6f2ff, #66c2ff, #3399ff); /* Less white on top */
+    height: 100px; /* Reduced height for the header to make the gradient less dominant */
+}
+
+.header .logo h1 {
+    font-family: 'Brush Script MT', cursive;
+    font-size: 2.5rem;
+    color: black; /* Black color for the logo */
+    font-weight: 100;
+}
+
+/* Navigation menu */
+nav ul {
+    list-style-type: none;
+    display: flex;
+    gap: 25px;
+    align-items: flex-end; /* Aligns the nav items closer to the bottom */
+}
+
+nav ul li a {
+    text-decoration: none;
+    font-size: 1.1rem;
+    color: black;
+    font-weight: bold;
+    padding-bottom: 10px; /* Brings the text closer to the bottom */
+}
+
+nav ul li a:hover,
+nav ul li a.active {
+    color: black;
+    text-decoration: underline;
+}
+
+/* Authentication buttons: LOGIN and SIGNUP */
+.auth-buttons {
+    display: flex;
+    gap: 1rem;
+}
+
+
+
+.login-btn,
+.signup-btn {
+    text-decoration: none;
+    padding: 15px 10px;
+    font-weight: bold;
+    color: white;
+    background-color: #2585e6;
+    border-radius: 10px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); /* Subtle shadow for better effect */
+    border: 2px solid transparent;
+    width: 10rem;
+    text-align: center;
+    transition: all 0.3s ease;
+    
+}
+
+.auth-buttons .signup-btn {
+    background-color: white;
+    color: #3399ff;
+    border-color: #3399ff;
+}
+
+.auth-buttons .login-btn:hover,
+.auth-buttons .signup-btn:hover {
+    background-color: #0056b3;
+    color: white;
+    border-color: #0056b3;
+}
+
+/* Search icon */
+.auth-buttons .search-icon {
+    font-size: 1.5rem;
+    color: black;
+    cursor: pointer;
+    padding-bottom: 10px; /* Align search icon closer to the bottom */
+}
+
+.profile-icon{
+    width: 50px;
+    color: black;
+}
+
+
+/* Hero section */
+.hero-section {
+    display: flex;
+    justify-content: center;
+    height: 65vh;
+    padding-bottom: 40px; /* Space below the text */
+}
+
+.hero-section h2 {
+    font-size: 2.5rem;
+    font-family: 'Georgia', serif; /* Main text font */
+    color: #000000;
+    text-align: center;
+    max-width: 70%;
+    margin: 40px;
+}
+
+/* Responsive design */
+@media screen and (max-width: 768px) {
+    .header {
+        flex-direction: column;
+        padding: 15px;
+        height: auto; /* Let height adjust for smaller screens */
+    }
+
+    nav ul {
+        flex-direction: column;
+        gap: 15px;
+    }
+
+    .auth-buttons {
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .hero-section h2 {
+        font-size: 2rem;
+    }
+}

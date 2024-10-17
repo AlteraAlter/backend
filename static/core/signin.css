@@ -1,0 +1,197 @@
+/* General Reset */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Arial', sans-serif;
+    background-color: #f4f4f4;
+    height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+/* Page layout */
+.signin-page {
+    display: flex;
+    width: 100%;
+    height: 100vh;
+}
+
+/* Left side with image/text */
+.signin-left {
+    flex: 1.5;
+    background: linear-gradient(to bottom, #f0f8ff, #1279e7);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+/* Welcome text on the left side */
+.welcome-text h1 {
+    font-family: 'Brush Script MT', cursive;
+    font-size: 7vw;
+    color: white;
+    text-align: center;
+    font-weight: 100;
+}
+
+/* Right side for sign-in form */
+.signin-right {
+    flex: 1;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background-color: white;
+}
+
+.auth-container {
+    width: 90%;
+    max-width: 400px;
+    padding: 30px;
+    background-color: white;
+    text-align: left;
+}
+
+.auth-container h2 {
+    font-family: 'Poppins', sans-serif;
+    font-size: 2.55vw;
+    font-weight: bold;
+    margin-bottom: 10px;
+}
+
+.auth-container p {
+    font-family: 'Poppins', sans-serif;
+    font-size: 1.02vw;
+    color: #666;
+}
+/* Input fields */
+.input-group {
+    display: flex;
+    align-items: center;
+    flex-direction: column;
+    position: relative;
+    width: 100%;
+    padding: 15px 20px 15px 20px;
+    font-size: 1vw;
+    border: 1px solid #d8d6d6;
+    border-radius: 10px;
+    outline: none;
+    transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.input-group:focus-within {
+    border-color: #05A2E6; /* Change border color to a highlight color */
+    box-shadow: 0 0 8px rgba(5, 162, 230, 0.5); /* Add a subtle glow effect */
+}
+
+.input-group i {
+    position: absolute;
+    left: 15px;
+    color: #666;
+}
+
+.input-group input {
+    width: 100%;
+    padding: 15px 20px 15px 50px;
+    font-size: 0.85vw;
+    border: 1px solid #d8d6d6;
+    border-radius: 50px;
+    outline: none;
+}
+
+.input-group input::placeholder {
+    color: #aaa;
+}
+
+/* Feedback messages */
+.feedback {
+    font-size: 11.9px;
+    display: block;
+}
+
+.feedback.success {
+    color: rgb(56, 221, 111);
+}
+
+.welcome-message{
+    margin-bottom: 20px;
+}
+
+.feedback-container{
+    height: 20px;
+}
+
+.feedback.error {
+    color: red;
+    font-size:12px;
+    padding: 4px 0;
+}
+
+/* Sign-in button */
+.register-btn {
+    width: 100%;
+    padding: 15px 10px;
+    font-size: 1.275vw;
+    font-weight: bold;
+    color: white;
+    background-color: #3e94eb;
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+    margin-top: 10px;
+}
+
+.register-btn:hover {
+    background-color: #0056b3;
+}
+
+/* Links for sign up and forgot password */
+.signin-links {
+    margin-top: 10px;
+    font-size: 0.85vw;
+    text-align: center;
+}
+
+.signin-links a {
+    color: #007bff;
+    text-decoration: none;
+}
+
+.signin-links a:hover {
+    text-decoration: underline;
+}
+
+
+
+/* Responsive design for smaller screens */
+@media screen and (max-width: 768px) {
+    .signin-page {
+        flex-direction: column;
+    }
+
+    .signin-left, .signin-right {
+        width: 100%;
+        height: auto;
+        flex: none;
+    }
+
+    .welcome-text h1 {
+        font-size: 8vw;
+    }
+
+    .auth-container p, .input-group input {
+        font-size: 3vw;
+    }
+
+    .register-btn {
+        font-size: 3vw;
+    }
+
+    .signin-links {
+        font-size: 3vw;
+    }
+}
