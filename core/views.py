@@ -1,7 +1,7 @@
 from django.shortcuts import render,redirect
 from django.contrib.sites.shortcuts import get_current_site
 from django.http import HttpResponse
-from .forms import RegisterForm, LoginForm
+from .forms import RegisterForm, LoginForm, CustomSetPasswordForm
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.models import User
 from django.contrib import messages
@@ -11,7 +11,7 @@ from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.template.loader import render_to_string
 from django.utils.encoding import force_bytes
 from django.contrib.auth.tokens import default_token_generator
-from django.contrib.auth.forms import SetPasswordForm
+
 # Create your views here.
 def signin(request):
     if request.method == 'POST':
@@ -60,8 +60,10 @@ def logout_(request):
 def forgot_password(request):
     if request.method == 'POST':
         email = request.POST.get('email')
-
         associated_user = User.objects.filter(email=email).first()
+        print(f"Email entered: {email}")
+        print(f"Associated user found: {associated_user}")
+
         if associated_user:
             subject = 'Password Reset Requested'
             email_template_name = 'core/password_reset_email.html'
@@ -76,9 +78,12 @@ def forgot_password(request):
 
             email_content = render_to_string(email_template_name, context)
             send_mail(subject, email_content, '200107017@stu.sdu.edu.kz', [associated_user.email], fail_silently=False)
-        messages.success(request, 'A reset code has been sent to your email address.')
-            
+            messages.success(request, 'A reset code has been sent to your email address.')
+        else:
+            messages.error(request, 'The specified email is not registered.')
+
     return render(request, 'core/forgot-password.html', {})
+
 
 
 
@@ -98,13 +103,13 @@ def change_password(request, uidb64, token):
 
     if user and default_token_generator.check_token(user, token):
         if request.method == 'POST':
-            form = SetPasswordForm(user, request.POST)
-            print(form)
+            form = CustomSetPasswordForm(user, request.POST)
+            
             if form.is_valid():
                 form.save()
                 return redirect('home')
         else:
-            form = SetPasswordForm(user)
+            form = CustomSetPasswordForm(user)
         return render(request, 'core/password_reset.html', {'form': form, 'correct': True})
     else:
         return render(request, 'core/password_reset.html', {'correct': False})

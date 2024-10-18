@@ -1,6 +1,6 @@
 from django.forms import ModelForm
 from django import forms
-from django.contrib.auth.forms import UserCreationForm
+from django.contrib.auth.forms import UserCreationForm, SetPasswordForm
 from django.contrib.auth.models import User
 
 
@@ -66,3 +66,21 @@ class LoginForm(forms.Form):
             'required': True,
         })
     )
+
+
+
+class CustomSetPasswordForm(SetPasswordForm):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for field in self.fields.values():
+            field.widget.attrs['class'] = 'custom-input-class'
+            field.help_text = f'<span class="custom-helptext">{field.help_text}</span>'
+            
+        self.fields['new_password1'].widget.attrs.update({
+            'class': 'custom-input-class',
+            'placeholder': 'Enter your new password',
+        })
+        self.fields['new_password2'].widget.attrs.update({
+            'class': 'custom-input-class',
+            'placeholder': 'Confirm your new password',
+        })
