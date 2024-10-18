@@ -22,7 +22,7 @@
         <div class="signin-right">
             <div class="auth-container">
                 <h2>Hello Again!</h2>
-                <p class='welcome-message'>Sign In to Continue</p>
+                <p class="welcome-message">Sign In to Continue</p>
                 
                 <form method="POST" id="signinForm" novalidate>
                     {% csrf_token %}
@@ -39,28 +39,24 @@
                         <i class="fas fa-lock"></i>
                         {{ form.password }}
                         <div class="feedback-container">
-                            {% for error in form.username.errors %}
+                            {% for error in form.password.errors %}
                                 <p class="feedback error">{{ error }}</p>
                             {% endfor %}
                         </div> 
                     </div>
                     <div class="feedback-container">
-                    {% for error in form.non_field_errors %}
-                        <p class="feedback error">{{ error }}</p>
-                    {% endfor %}
+                        {% for error in form.non_field_errors %}
+                            <p class="feedback error">{{ error }}</p>
+                        {% endfor %}
                     </div>
-                    <div id="feedback" class="feedback"></div>
                     <button type="submit" class="register-btn">Login</button>
                     <p class="signin-links">
-                        Don't have an account? <a href="{% url 'signup' %}">Sign up!</a>
-                        <br>
+                        Don't have an account? <a href="{% url 'signup' %}">Sign up!</a><br>
                         <a href="{% url "forgot_password" %}">Forgot Password?</a>
                     </p>
                 </form>
             </div>
         </div>
     </div>
-
-    {% comment %} <script src="{% static "core/signin.js" %}"></script> {% endcomment %}
 </body>
 </html>
