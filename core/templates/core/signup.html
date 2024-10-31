@@ -10,7 +10,7 @@
 </head>
 <body>
     <div class="nav-icons" style="position: absolute; top: 10px; left: 10px;">
-        <a href="#" style="margin-right: 15px;"><img src="{% static "core/left-sign.png" %}" width="30" height="30" alt="Back"></a>
+        <a href="" style="margin-right: 15px;"><img src="{% static "core/left-sign.png" %}" width="30" height="30" alt="Back"></a>
         <a href="{% url "home" %}"><img src="{% static "core/home-sign.png" %}" width="30" height="30" alt="Home"></a>
     </div>    
     <div class="signup-page">
@@ -22,7 +22,7 @@
         <div class="signup-right">
             <div class="auth-container">
                 <h2>Hello!</h2>
-                <p class="message-welcome">Sign Up to Get Started</p>
+                <p class='message-welcome'>Sign Up to Get Started</p>
                 
                 <form id="signupForm" method='POST' novalidate>
                     {% csrf_token %}
@@ -46,5 +46,7 @@
             </div>
         </div>
     </div>
+
+    
 </body>
 </html>

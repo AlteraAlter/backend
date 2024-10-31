@@ -1,0 +1,439 @@
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Poppins', sans-serif;
+    background-color: #f4f4f4;
+    color: #333;
+    overflow-x: hidden;
+}
+
+.header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 50px;
+    background: linear-gradient(to bottom, #e6f2ff, #66c2ff, #3399ff);
+    height: 100px;
+}
+
+.header .logo h1 {
+    font-family: 'Brush Script MT', cursive;
+    font-size: 3.5rem;
+    color: black;
+    font-weight: 100;
+}
+
+/* Base styling for navigation links */
+nav ul li a {
+    text-decoration: none;
+    font-size: 1.4rem;
+    color: black;
+    font-weight: bold;
+    transition: color 0.3s ease;
+}
+
+/* Style for active link */
+nav ul li a.active {
+    color: black; /* Change this color to your preferred active color */
+    border-bottom: 3px solid black; /* Adds an underline to show it's active */
+}
+
+/* Optional hover effect for navigation links */
+nav ul li a:hover {
+    color: #0056b3; /* Slightly darker shade on hover */
+}
+
+
+nav ul {
+    list-style-type: none;
+    display: flex;
+    gap: 35px;
+}
+
+.auth-buttons {
+    display: flex;
+    gap: 1rem;
+}
+
+.login-btn,
+.signup-btn {
+    text-decoration: none;
+    padding: 15px 10px;
+    font-weight: bold;
+    color: white;
+    background-color: #2585e6;
+    border-radius: 10px;
+    transition: background-color 0.3s ease;
+}
+
+.auth-buttons .signup-btn {
+    background-color: white;
+    color: #3399ff;
+}
+
+.auth-buttons .login-btn:hover,
+.auth-buttons .signup-btn:hover {
+    background-color: #0056b3;
+    color: white;
+}
+
+.locations-container {
+    text-align: left;
+    padding: 40px 50px;
+}
+
+.locations-container h1 {
+    font-size: 2.7rem;
+    margin-bottom: 30px;
+    font-family: 'Poppins', serif;
+    color: black;
+    text-decoration: none;
+    font-weight: 400;
+    margin-top: 100px;
+    margin-left: 200px;
+}
+
+.locations-container h1 a {
+    color: black;
+    text-decoration: none;
+    cursor: default;
+}
+
+.locations-container h1 a:hover {
+    color: black;
+    text-decoration: none;
+}
+
+.locations {
+    display: flex;
+    gap: 5px; /* Adjusted to smaller gap */
+}
+
+.location {
+    text-align: left;
+    width: 30%;
+}
+
+.location img {
+    width: 90%; /* Increased image width by 10% */
+    height: auto;
+    border-radius: 8px;
+    margin-left: 100px;
+}
+
+.view-text {
+    font-size: 1.5rem;
+    margin-top: 10px;
+    color: black;
+    text-decoration: none;
+    font-family: 'Poppins', serif;
+    margin-left: 100px;
+    margin-bottom: 25px;
+}
+
+.location a {
+    color: black;
+    text-decoration: none;
+}
+
+.separator {
+    border: none;
+    height: 2px;
+    background-color: black;
+    margin: 20px 0;
+}
+
+@media screen and (max-width: 768px) {
+    .header {
+        flex-direction: column;
+        padding: 15px;
+    }
+
+    nav ul {
+        flex-direction: column;
+        gap: 15px;
+    }
+
+    .locations {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .location {
+        width: 80%;
+        margin-bottom: 20px;
+    }
+
+    .locations-container h1 {
+        font-size: 2rem;
+    }
+}
+
+.suppliers-section {
+    text-align: left; /* Выравнивание заголовка по левому краю */
+    padding: 70px 20px; /* Отступы для всего раздела, включая заголовок */
+    margin-top: 150px;
+}
+
+.suppliers-section h2 {
+    font-size: 2.4rem;
+    font-weight: 400;
+    margin-bottom: 70px;
+    padding-left: 200px; /* Отступ в 50px справа от заголовка */
+    display: inline-block; /* Чтобы отступ влиял только на заголовок */
+    font-family: 'Poppins', serif;
+}
+
+.carousel {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: -70px; /* Постоянное пересечение на 70px */
+    overflow: hidden;
+    max-width: 100%;
+    margin: 0 auto;
+    position: relative;
+}
+
+.carousel-card {
+    margin-top: 50px;
+    background-color: #f4f4f4;
+    width: 600px; /* Ширина карточек */
+    padding: 30px;
+    border-radius: 20px; /* Закругленные углы */
+    text-align: center;
+    opacity: 0.3;
+    transition: all 0.7s ease;
+    transform: scale(0.9) translateY(20px); /* По умолчанию уменьшенные и ниже */
+    position: relative;
+    z-index: 1;
+    margin-left: -120px; /* Перекрытие с предыдущей карточкой */
+}
+
+.carousel-card.active {
+    margin-top: 50px;
+    background-color: #817f7f;
+    color: white;
+    opacity: 1;
+    transform: scale(1.05) translateY(-10px); /* Поднимается и становится крупнее */
+    z-index: 2; /* Выше других */
+    margin-left: -70px; /* Перекрытие с предыдущей карточкой */
+}
+
+.carousel-card h3 {
+    font-size: 1.4rem;
+    margin-bottom: 15px;
+}
+
+.carousel-card p {
+    font-size: 1rem;
+    line-height: 1.6;
+}
+
+.carousel-nav {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    position: relative;
+    top: -120px;
+    width: 100%;
+    max-width: 350px;
+    margin: 0 auto;
+}
+
+.carousel-controls {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 50px; /* Расстояние между кнопками и точками */
+    margin-top: 25px;
+}
+
+.pagination-dots {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+}
+
+.nav-btn {
+    background-color: black;
+    color: white;
+    border: none;
+    border-radius: 50%;
+    width: 35px;
+    height: 35px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.2rem;
+    cursor: pointer;
+}
+
+.dot {
+    height: 12px;
+    width: 12px;
+    background-color: #ddd;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+.dot.active {
+    background-color: #333;
+}
+
+.carousel-card {
+    display: flex;
+    align-items: center;
+    gap: 20px; /* Отступ между изображением и текстом */
+    text-align: left; /* Выравнивание текста по левому краю */
+}
+
+.carousel-card p {
+    font-size: 1.1em;
+}
+
+/* Стили для изображения внутри карточек */
+.carousel-card .card-image {
+    width: 120px; /* Ширина изображения */
+    height: 130px; /* Высота изображения */
+    margin-right: 20px; /* Отступ справа от изображения */
+    flex-shrink: 0; /* Предотвращает изменение размера изображения */
+}
+
+.categories-section {
+    margin-top: 100px;
+    text-align: center;
+    padding: 40px 0;
+    margin-left: 150px;
+}
+
+.categories-section h2 {
+    font-size: 2.3rem;
+    font-weight: 400;
+    margin-bottom: 70px;
+    margin-left: -1200px;
+    margin-bottom: 70px;
+    font-family: 'Poppins', serif;
+}
+
+.categories-carousel {
+    text-align: left; /* Align items starting from the left side */
+    display: block;
+    max-width: 100%;
+}
+
+.category {
+    display: inline-block; /* Place items in a single horizontal line */
+    text-align: center;
+    width: 180px;
+    vertical-align: top;
+    margin-right: 50px; /* Space between items */
+    margin-bottom: 100px;
+    margin-top: 50px;
+}
+
+.category-image {
+    width: 150px;
+    height: 150px;
+    border-radius: 50%; /* Make images circular */
+    object-fit: cover;
+    margin-bottom: 10px;
+    border: 2px solid #ddd;
+}
+
+.category p {
+    font-size: 0.9rem;
+    font-weight: bold;
+    margin: 0;
+}
+/* Go to Cart Section */
+.go-to-cart {
+    background-color: #f1f1f1;
+    padding: 20px 0;
+    text-align: left;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-top: 50px;
+    position: relative;
+    width: 100vw; /* Full viewport width */
+    max-width: 120%; /* Removes restriction */
+    box-sizing: border-box;
+    margin-left: -100px;
+}
+
+.cart-link {
+    text-decoration: none;
+    font-size: 2.3rem;
+    font-weight: bold;
+    color: #333;
+    margin-left: -1500px;
+    gap: 15px;
+}
+
+.icon {
+    width: 40px;
+    height: 40px;
+    margin-left: 10px;
+    color: #333;
+}
+
+
+/* Footer Section */
+.footer {
+    background-color: #333;
+    color: white;
+    padding: 50px 0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    width: 100vw; /* Full viewport width */
+    max-width: 120%; /* Removes restriction */
+    position: relative;
+    box-sizing: border-box;
+    margin-left: -150px;
+    margin-bottom: -100px;
+    margin-right: -300px;
+}
+
+.footer-content {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    justify-content: space-between;
+    max-width: 1200px; /* Optional max-width for inner content */
+}
+
+.footer-logo h2 {
+    font-size: 2.5rem;
+    margin: 0;
+    margin-left: -250px;
+    flex-grow: 1;
+}
+
+.social-media {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    margin-left: 50px;
+    color: #ddd;
+}
+
+img.icon {
+    width: 40px;
+    height: 40px;
+}
+
+/* Copyright */
+.footer .copyright {
+    font-size: 1.2rem;
+    color: #bbb;
+    text-align: right;
+    margin-left: auto;
+    margin-right: -200px;
+}

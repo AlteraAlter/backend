@@ -23,6 +23,8 @@ def signin(request):
             user = authenticate(request, username=username, password=password)
             if user is not None:
                 login(request, user)
+                if user.is_staff:
+                    return redirect('manager')
                 return redirect('home')
             else:
                 form.add_error(None, "Invalid email or password")
@@ -37,20 +39,24 @@ def signup(request):
     if request.method == 'POST':
         form = RegisterForm(request.POST)
         if form.is_valid():
-            form.save()
+            user = form.save(commit=False)
+            if 'happyholiday' in user.email:
+                user.is_staff = True
+            user.save()
+            
             username = form.cleaned_data['username']
             password = form.cleaned_data['password1']
-
             user = authenticate(username=username, password=password)
             if user:
                 login(request, user)
+                if 'happyholiday' in user.email:
+                    return redirect('manager')
                 return redirect('home')
         else:
             print('Form errors:', form.errors)
-            
     else:
         form = RegisterForm()
-    return render(request, 'core/signup.html', {'form': form}) 
+    return render(request, 'core/signup.html', {'form': form})
 
 
 def logout_(request):
@@ -83,10 +89,6 @@ def forgot_password(request):
             messages.error(request, 'The specified email is not registered.')
 
     return render(request, 'core/forgot-password.html', {})
-
-
-
-
 
 
 def password_reset_success(request):
@@ -125,3 +127,32 @@ def profile(request, id):
     user = User.objects.get(pk=id)
 
     return render(request, 'core/profile.html', {'user': user, 'id': id})
+
+
+
+def manager_page(request):
+
+
+    return render(request, 'core/manager_home.html', {})
+
+def location(request):
+
+    return render(request, 'core/location.html', {})
+
+def generate_report(request):
+    # Create a new Excel file
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Report"
+
+    # Fill with sample data
+    ws['A1'] = "ID"
+    ws['B1'] = "Name"
+    ws.append([1, 'John Doe'])
+    ws.append([2, 'Jane Smith'])
+
+    # Create a response with Excel file
+    response = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    response['Content-Disposition'] = 'attachment; filename="report.xlsx"'
+    wb.save(response)
+    return response

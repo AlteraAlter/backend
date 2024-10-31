@@ -1,0 +1,234 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{% static "core/location.css" %}">
+</head>
+<body>
+    <header class="header">
+        <div class="logo">
+            <h1>Happy Holiday</h1>
+        </div>
+        <nav>
+            <ul>
+                <li><a href="{% url "home" %}">Home</a></li>
+                <li><a href="#location" class="active">Location</a></li>
+                <li><a href="#suppliers">Suppliers</a></li>
+                <li><a href="#about">About</a></li>
+                <li><a href="#media">Media</a></li>
+                <li><a href="#contact">Contact Us</a></li>
+            </ul>
+        </nav>
+        <div class="auth-buttons">
+            {% if user.is_authenticated %}
+                <a href="{% url "profile" id %}">
+                    <img src="{% static "core/profile.png" %}" alt="" class='profile-icon'>
+                </a> 
+                <a href="{% url "logout" %}" class="login-btn">Logout</a>
+            {% else %}
+                <a href="{% url "signin"  %}" class="login-btn">Sign in</a>
+                <a href="{% url "signup" %}" class="signup-btn">Sign up</a>
+            {% endif %}
+        </div>
+    </header>
+    <div class="locations-container">
+            <h1><a href="locations.html">Locations</a></h1> <!-- Link with a tag -->
+            <div class="locations">
+                <div class="location">
+                    <a href="sea_view.html">
+                        <img src="{% static "core/1st.png" %}" alt="With Sea View">
+                        <p class="view-text">with sea view</p>
+                    </a>
+                </div>
+                <div class="location">
+                    <a href="city_center.html">
+                        <img src="{% static "core/2nd.png" %}" alt="In the City Center">
+                        <p class="view-text">in the city center</p>
+                    </a>
+                </div>
+                <div class="location">
+                    <a href="mountain_view.html">
+                        <img src="{% static "core/3rd.png" %}" alt="With Mountain View">
+                        <p class="view-text">with mountain view</p>
+                    </a>
+                </div>
+            </div>
+            <hr class="separator"> <!-- Common horizontal line -->
+        </div>
+    
+        <div class="suppliers-section">
+            <h2>Top 3 Suppliers</h2>
+            <div class="carousel">
+                <div class="carousel-card active">
+                    <img src="{% static "core/1st_top.png" %} " alt="Supplier 1" class="card-image"> <!-- Изображение 1 -->
+                    <div>
+                        <h3>Ocean Basket</h3>
+                        <p>This is more than 20 years of hard work in<br>
+                           the restaurant business, over 200 successful <br>
+                           projects around the world, of which there are<br>
+                            more and more every year.</p>
+                    </div>
+                </div>
+                <div class="carousel-card">
+                    <img src="{% static "core/2nd_top.png" %}" alt="Supplier 2" class="card-image"> <!-- Изображение 2 -->
+                    <div>
+                        <h3>Amina Saurykova</h3>
+                        <p>Discount for the amount of work:<br>
+                            3 or more hours -10%; 6 or more hours -20%<br>
+                            The price includes:<br>
+                            photography<br>
+                            color correction of successful shots<br>
+                            all captured photographic material (on request)</p>
+                    </div>
+                </div>
+                <div class="carousel-card">
+                    <img src="{% static "core/3rd_top.png" %}" alt="Supplier 3" class="card-image"> <!-- Изображение 3 -->
+                    <div>
+                        <h3>Bounce</h3>
+                        <p>Excellent choreographic preparation and <br>
+                            you are always charged with positivity and <br>
+                            a great mood from each number, their <br>
+                            performances are always great.</p>
+                    </div>
+                </div>
+            </div>
+            <div class="carousel-controls">
+                <button class="nav-btn left-btn">&#10094;</button> <!-- Кнопка влево -->
+                <div class="pagination-dots">
+                    <span class="dot active"></span>
+                    <span class="dot"></span>
+                    <span class="dot"></span>
+                </div>
+                <button class="nav-btn right-btn">&#10095;</button> <!-- Кнопка вправо -->
+            </div>        
+        </div>
+    
+    <script>
+            const cards = document.querySelectorAll('.carousel-card');
+            const dots = document.querySelectorAll('.dot');
+            let currentIndex = 1; // Начинаем со второго контейнера
+        
+            function showSlide(index) {
+                cards.forEach((card, i) => {
+                    if (i === index) {
+                        card.classList.add('active');
+                        card.style.transform = 'scale(1.05) translateY(-10px)'; // Поднимаем и увеличиваем активный контейнер
+                        card.style.opacity = '1';
+                        card.style.zIndex = '2'; // Выше других
+                    } else {
+                        card.classList.remove('active');
+                        card.style.transform = 'scale(0.9) translateY(20px)'; // Опускаем и уменьшаем неактивные контейнеры
+                        card.style.opacity = '0.3';
+                        card.style.zIndex = '1'; // Возвращаем на задний слой
+                    }
+                    dots[i].classList.toggle('active', i === index);
+                });
+            }
+        
+            document.querySelector('.left-btn').addEventListener('click', () => {
+                currentIndex = (currentIndex > 0) ? currentIndex - 1 : cards.length - 1;
+                showSlide(currentIndex);
+            });
+        
+            document.querySelector('.right-btn').addEventListener('click', () => {
+                currentIndex = (currentIndex < cards.length - 1) ? currentIndex + 1 : 0;
+                showSlide(currentIndex);
+            });
+        
+            // Инициализация с показа второго контейнера
+            showSlide(currentIndex);
+        </script>    
+        
+    
+        <div class="categories-section">
+            <h2>Popular Categories</h2>
+            <div class="categories-carousel">
+                <div class="categories">
+                    <div class="category">
+                        <img src="{% static "core/2nd_top.png" %}" alt="Photographer" class="category-image">
+                        <p>PHOTOGRAPHER / VIDEOGRAPHER</p>
+                    </div>
+                    <div class="category">
+                        <img src="{% static "core/decorators.png" %}" alt="Decorators" class="category-image">
+                        <p>DECORATORS</p>
+                    </div>
+                    <div class="category">
+                        <img src="{% static "core/1st_top.png" %}" alt="Menu/Bar" class="category-image">
+                        <p>MENU / BAR</p>
+                    </div>
+                    <div class="category">
+                        <img src="{% static "core/dance.png" %}" alt="Choreographers" class="category-image">
+                        <p>CHOREOGRAPHERS</p>
+                    </div>
+                    <div class="category">
+                        <img src="{% static "core/designers.png" %}" alt="Designers" class="category-image">
+                        <p>DESIGNERS</p>
+                    </div>
+                    <div class="category">
+                        <img src="{% static "core/venue.png" %}" alt="Venue planners" class="category-image">
+                        <p>CHOREOGRAPHERS</p>
+                    </div>
+                    <div class="category">
+                        <img src="{% static "core/makeup_artist.png" %}" alt="Makeup artists" class="category-image">
+                        <p>DESIGNERS</p>
+                    </div>
+        </div>
+    
+        
+        <script>
+            let categoryIndex = 0;
+            const categories = document.querySelectorAll('.category');
+            const totalCategories = categories.length;
+        
+            document.querySelector('.categories-section .left-btn').addEventListener('click', () => {
+                categoryIndex = (categoryIndex > 0) ? categoryIndex - 1 : totalCategories - 1;
+                updateCarousel();
+            });
+        
+            document.querySelector('.categories-section .right-btn').addEventListener('click', () => {
+                categoryIndex = (categoryIndex < totalCategories - 1) ? categoryIndex + 1 : 0;
+                updateCarousel();
+            });
+        
+            function updateCarousel() {
+                categories.forEach((category, index) => {
+                    category.style.display = (index === categoryIndex) ? 'block' : 'none';
+                });
+                // Update dots as needed
+            }
+        
+            // Initialize display
+            updateCarousel();
+        </script>
+    
+    <div class="go-to-cart" style="margin-top: 100px;">
+            <a href="#" class="cart-link">
+                <span>Go to Cart</span>
+                <img src="{% static "core/cart.png" %}" alt="Cart" class="icon">
+            </a>
+        </div>
+    
+        <footer class="footer">
+            <div class="footer-content">
+                <div class="footer-logo">
+                    <h2>Happy Holiday</h2>
+                </div>
+                <div class="social-media">
+                    <div class="social-icon">
+                        <a href="#"><img src="{% static "core/telegram.png" %}" alt="Telegram" class="icon"></a>
+                        <a href="#"><img src="{% static "core/instagram.png" %}" alt="Instagram" class="icon"></a>
+                        <a href="#"><img src="{% static "core/twitter.png" %}" alt="Twitter" class="icon"></a>
+                        <a href="#"><img src="{% static "core/facebook.png" %}" alt="Facebook" class="icon"></a>
+                    </div>
+                </div>
+                <div class="copyright">
+                    &copy;2024 SDU | All Rights Reserved
+                </div>
+            </div>
+        </footer>
+</body>
+</html>

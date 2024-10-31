@@ -1,0 +1,101 @@
+/* General Reset */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Poppins', sans-serif;
+    background-color: #f4f4f4;
+    color: #333;
+    height: 100vh;
+}
+
+/* Header and navigation bar */
+.header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 50px;
+    background: linear-gradient(to bottom, #e6f2ff, #66c2ff, #3399ff);
+    height: 100px;
+}
+
+.header .logo h1 {
+    font-family: 'Brush Script MT', cursive;
+    font-size: 3.5rem;
+    color: black;
+    font-weight: 100;
+}
+
+/* Navigation menu */
+nav ul {
+    list-style-type: none;
+    display: flex;
+    gap: 35px;
+    align-items: flex-end;
+}
+
+nav ul li a {
+    text-decoration: none;
+    font-size: 1.4rem;
+    color: black;
+    font-weight: bold;
+    padding-bottom: 10px;
+}
+
+nav ul li a:hover,
+nav ul li a.active {
+    color: black;
+    text-decoration: underline;
+}
+
+/* User Options: Profile and Logout buttons */
+.user-options {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.profile-icon {
+    width: 50px;
+    border-radius: 50%;
+}
+
+.login-btn {
+    text-decoration: none;
+    padding: 10px 15px;
+    font-weight: bold;
+    color: white;
+    background-color: #2585e6;
+    border-radius: 10px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    border: 2px solid transparent;
+    transition: all 0.3s ease;
+}
+
+.login-btn:hover {
+    background-color: #0056b3;
+    color: white;
+    border-color: #0056b3;
+}
+
+/* Responsive design */
+@media screen and (max-width: 768px) {
+    .header {
+        flex-direction: column;
+        padding: 15px;
+        height: auto;
+    }
+
+    nav ul {
+        flex-direction: column;
+        gap: 15px;
+    }
+
+    .user-options {
+        flex-direction: column;
+        gap: 10px;
+    }
+}
