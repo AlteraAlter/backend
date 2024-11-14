@@ -26,7 +26,7 @@ SECRET_KEY = 'django-insecure-a=3mwp@fd*w^tilutuhioi@%b$4hit%g!7nqr%4z!)d*+si4x#
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['your-railway-domain.com']
 
 
 # Application definition
@@ -43,6 +43,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -78,10 +79,10 @@ WSGI_APPLICATION = 'backend.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'soft',
+        'NAME': 'railway',
         'USER': 'root',
-        'PASSWORD': 'Nurila_2004',
-        'HOST': '127.0.0.1',
+        'PASSWORD': 'rECbpMTqKgxzddbmoexGnbsalRmvWItY',
+        'HOST': 'mysql.railway.internal',
         'PORT': '3306',
     }
 }
