@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/5.1/ref/settings/
 
 from pathlib import Path
 import os
+import dj_database_url
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -86,6 +87,9 @@ DATABASES = {
         'PORT': '3306',
     }
 }
+
+DATABASES['default'] = dj_database_url.parse('postgresql://db_test_render_user:eklyyE2GTS6RidJk1Nh4n0wWGUKf8MUB@dpg-csr6n40gph6c73cvk8h0-a.oregon-postgres.render.com/db_test_render')
+
 
 
 # Password validation
