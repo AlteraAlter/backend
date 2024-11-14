@@ -88,7 +88,7 @@ DATABASES = {
     }
 }
 
-DATABASES['default'] = dj_database_url.parse('postgresql://db_test_render_user:eklyyE2GTS6RidJk1Nh4n0wWGUKf8MUB@dpg-csr6n40gph6c73cvk8h0-a.oregon-postgres.render.com/db_test_render')
+DATABASES['default'] = dj_database_url.parse('postgresql://db_test_swe_user:nihHYAVmCa2lXovc1qMKYdscJKZk71Q6@dpg-csr6tm52ng1s73f6k930-a.oregon-postgres.render.com/db_test_swe')
 
 
 
