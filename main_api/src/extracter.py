@@ -1,0 +1,154 @@
+"""
+Модуль для извлечения и форматирования HTML-описаний товаров.
+
+Основной функционал:
+- Извлечение HTML контента из файлов (по EAN)
+- Добавление служебных полей (описание товара, соцсети)
+- Подготовка финального веб-тага для отправки в API Kaufland
+"""
+
+import os
+from bs4 import BeautifulSoup
+from main_api.src.logger import log
+
+
+def get_description(ean: str) -> str:
+    """
+    Извлекает оригинальный HTML-контент товара из файла.
+    
+    Алгоритм:
+    1. Находит блок #tab-content1 в HTML-файле (основное описание товара)
+    2. Добавляет !important ко всем CSS стилям (чтобы не переопределялись)
+    3. Сохраняет весь <head> для шрифтов и стилей
+    4. Возвращает комбинацию head + контент
+    
+    Args:
+        ean: EAN-код товара; используется для поиска файла media/html/{ean}.html
+    
+    Returns:
+        Строка с HTML контентом или пустая строка, если файл не найден
+    """
+    # Вычисляем путь к корню проекта и ищем файл HTML
+    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    file_path = os.path.join(base_dir, "media", "html", f"{ean}.html")
+    
+    if not os.path.exists(file_path):
+        log(f"Нет файла: {ean}", save=True)
+        return ""
+
+    with open(file_path, encoding="utf-8") as f:
+        soup = BeautifulSoup(f, "html.parser")
+
+    # Находим основное описание товара (должно быть в #tab-content1)
+    tab = soup.find("div", id="tab-content1")
+    if not tab:
+        log(f"Не найден #tab-content1 в {ean}")
+        return ""
+
+    # 1. Сохраняем всю голову (<head>) для стилей и шрифтов
+    head_str = str(soup.head) if soup.head else ""
+
+    # 2. Извлекаем содержимое tab-content1
+    content = "".join(str(child) for child in tab.children if child.name or str(child).strip())
+
+    # 3. Обрабатываем inline-стили: добавляем !important, чтобы они не переопределялись
+    content_soup = BeautifulSoup(content, "html.parser")
+    for tag in content_soup.find_all(True):
+        if tag.has_attr("style"):
+            styles = tag["style"]
+            new_styles = []
+            for rule in styles.split(";"):
+                rule = rule.strip()
+                if rule and not rule.lower().endswith("!important"):
+                    # Пропускаем animation/transition (к ним !important не добавляем)
+                    if not any(x in rule.lower() for x in ["animation", "transition"]):
+                        rule += " !important"
+                if rule:
+                    new_styles.append(rule)
+            tag["style"] = "; ".join(new_styles)
+
+    content = str(content_soup)
+
+    # 4. Собираем финальный webtag: голова + контент
+    final_html = f"""
+        {head_str}
+        {content}
+    """.strip()
+
+    return final_html
+
+
+def add_extra_fields_webtag(description: str, webtag: str) -> str:
+    """
+    Добавляет служебные блоки (описание товара, соцсети) к основному HTML-контенту.
+    
+    Структура результата:
+    1. Оригинальный webtag (содержимое товара)
+    2. Блок "Описание товара" с текстом описания (из GPT или вручную)
+    3. Блок "Что может быть интересно" с ссылками на шоурумы, контакты, соцсети
+    
+    Args:
+        description: Текстовое описание товара (из GPT или другого источника)
+        webtag: Основной HTML-контент (из get_description)
+    
+    Returns:
+        Полный HTML с основным контентом, описанием и соцблоками
+    """
+    # Немецкие подписи для служебных блоков
+    db_keywords = {
+        "Produktbeschreibung": "Produktbeschreibung",  # Заголовок блока описания
+        "Was für Sie interessant sein kann": "Was für Sie interessant sein kann",  # Заголовок соцблока
+    }
+    
+    new_web_tag = """"""
+
+    # Добавляем оригинальный контент товара
+    new_web_tag += webtag + "\n"
+
+    # Добавляем блок "Описание товара"
+    product_description = f"""
+    <div>
+    <div style="background-color: #494949;">
+    <h2 class="lastViewHeading bg-color-7 color-1 font-1"><span style="vertical-align: inherit;"><span style="vertical-align: inherit;">
+    {db_keywords["Produktbeschreibung"]}</span></span></h2>
+    </div>
+    <div>&nbsp;</div>
+    <div>
+    <p><span style="font-size: 12pt; color: #000000;">{description}</span></p>
+    </div>
+    <div>&nbsp;</div>
+    </div>
+    """
+    new_web_tag += product_description + "\n"
+    
+    return new_web_tag
+
+
+async def adapt_html_description(ean: str, description: str) -> str:
+    """
+    Основная функция для подготовки финального HTML-описания товара.
+    
+    Используется в контроллере при создании товара в Kaufland:
+    1. Извлекает оригинальный HTML товара из файла
+    2. Добавляет служебные блоки (описание, соцсети)
+    3. Возвращает готовый HTML для поля 'description' в API
+    
+    Args:
+        ean: EAN-код товара
+        description: Текстовое описание (из GPT генератора)
+    
+    Returns:
+        Полный HTML контент для отправки в API Kaufland
+    
+    Пример использования (в kaufland_controller.py):
+        new_webtag = await adapt_html_description(ean, gpt_description)
+        attributes["description"] = [new_webtag]
+    """
+    # Извлекаем оригинальный HTML контент товара
+    webtag = get_description(ean=ean)
+    
+    # Добавляем служебные блоки (описание)
+    new_webtag = add_extra_fields_webtag(description=description, webtag=webtag)
+    
+    return new_webtag
+

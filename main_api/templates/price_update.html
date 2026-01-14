@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Обновления цен</title>
+</head>
+<body>
+    <h1>Мониторинг изменений цен</h1>
+    <table id="price-table" border="1">
+        <thead>
+            <tr>
+                <th>EAN</th>
+                <th>Старая цена</th>
+                <th>Новая цена</th>
+                <th>Витрина</th>
+                <th>Время</th>
+            </tr>
+        </thead>
+        <tbody id="price-body">
+            <!-- Динамически заполняется -->
+        </tbody>
+    </table>
+
+    <script>
+        const ws = new WebSocket('ws://{{ WS_URL }}/ws/price-updates/');
+
+        ws.onopen = function() {
+            console.log('WebSocket подключен');
+        };
+
+        ws.onmessage = function(event) {
+            const data = JSON.parse(event.data);
+            if (data.type === 'price_changed') {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${data.ean}</td>
+                    <td>${data.old_price || 'N/A'}</td>
+                    <td>${data.new_price}</td>
+                    <td>${data.storefront}</td>
+                    <td>${data.timestamp}</td>
+                    <td>${data.result}</td>
+                `;
+                document.getElementById('price-body').appendChild(row);
+            }
+        };
+
+        ws.onclose = function() {
+            console.log('WebSocket отключен');
+        };
+    </script>
+</body>
+</html>

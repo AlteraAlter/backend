@@ -1,0 +1,769 @@
+import asyncio
+import json
+import math
+import os
+import re
+import random
+import time
+import hmac
+import hashlib
+from datetime import datetime
+import aiohttp
+import certifi
+from aiohttp import ClientError
+from channels.layers import get_channel_layer
+from django.conf import settings
+from config import controllers_base, storefronts, XL_CONTACT_DATA, XL_MANUFACTURER, JV_CONTACT_DATA, JV_MANUFACTURER
+from aiolimiter import AsyncLimiter
+import ssl
+from main_api.src.ftp_src.new_ftp_controller import process_pics
+from main_api.src.gpt.gpt_helper import generate_description, generate_seo
+from main_api.src.logger import log
+from main_api.src.extracter import adapt_html_description
+
+
+class KauflandController:
+    """
+        Класс для взаимодействия с кауфлендом
+    """
+    def __init__(self, session, version):
+        self.limiter = AsyncLimiter(50, time_period=1)  # 100 req/sec is Limit
+        self.session = session
+        self.version = version
+        self.retries = 3
+        self.backoff = 2
+        self.base_api_url = "https://sellerapi.kaufland.com/v2"
+
+    # NOTE: НЕ ТРОГАТЬ!!!
+    @staticmethod
+    def _sign_request(method, uri, body, timestamp, secret_key):
+        """
+            Функция для генерирования нового HMAC делается для
+            безопасности использования в Kaufland, для КАЖДОГО запроса
+        """
+        if isinstance(body, dict):
+            body = json.dumps(body, separators=(",", ":"))  # важно без пробелов
+        elif body is None:
+            body = ""
+        plain_text = "\n".join([method, uri, body, str(timestamp)])
+
+        digest_maker = hmac.new(secret_key.encode(), None, hashlib.sha256)
+        digest_maker.update(plain_text.encode())
+        return digest_maker.hexdigest()
+
+    # NOTE: НЕ ТРОГАТЬ!!!
+    async def _get_headers(self, url, body, method):
+        if body is None:
+            body = ""
+        timenow = str(int(time.time()))
+        controller = self.version
+        client_key = controllers_base[controller]["client_key"]
+        secret_key = controllers_base[controller]["secret_key"]
+        signed_key = self._sign_request(method=method, uri=url, body=body, timestamp=timenow, secret_key=secret_key)
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "User-Agent": "Inhouse_development",
+            "Shop-Timestamp": timenow,
+            "Shop-Client-Key": client_key,
+            "Shop-Signature": signed_key
+        }
+        return headers
+
+    # NOTE: НЕ ТРОГАТЬ!!!
+    async def _universal_request(self, method, url, body=None, params=None):
+        """
+            Универсальная функция для выполнения реквестов для любых
+            методов
+        """
+        ssl_cert = ssl.create_default_context(cafile=certifi.where())
+
+        if body is not None and body != "":
+            if isinstance(body, dict):
+                serialized_body = json.dumps(body, separators=(",", ":"))
+            else:
+                serialized_body = body
+        else:
+            serialized_body = ""
+
+        # Генерируем заголовки с использованием именно serialized_body
+        headers = await self._get_headers(url, serialized_body, method=method)
+
+        for attempt in range(1, self.retries + 1):
+            try:
+                async with self.limiter:
+                    if method == "GET":
+                        async with self.session.get(url=url, headers=headers, params=params, ssl=ssl_cert) as response:
+                            # response.raise_for_status()
+                            return await response.json()
+
+                    elif method == "POST":
+                        async with self.session.post(url=url, headers=headers, data=serialized_body, ssl=ssl_cert) as response:
+                            # response.raise_for_status()
+                            return await response.json()
+                    elif method == "PUT":
+                        async with self.session.put(url=url, headers=headers, data=serialized_body, ssl=ssl_cert) as response:
+                            # response.raise_for_status()
+                            return await response.json()
+                    elif method == "DELETE":
+                        async with self.session.delete(url=url, headers=headers, json=body, ssl=ssl_cert) as response:
+                            if response.status == 204 or response.status == 200 or response.status == 404:
+                                return True
+                            elif attempt == self.retries:
+                                return False
+                    elif method == "PATCH":
+                        async with self.session.patch(url=url, headers=headers, data=serialized_body, ssl=ssl_cert) as response:
+                            if response.status == 200:
+                                return {"message": "success"}
+                            elif response.status == 404:
+                                return {"message": "not found"}
+                            else:
+                                return {"message": "something went wrong", "status": response.status, "response": response}
+            except (asyncio.TimeoutError, ClientError) as e:
+                log(f"[{method}] Попытка {attempt}/{self.retries} не удалась ERROR: {e} "
+                                 f"payload: {json.dumps(body, indent=2)}\nheaders: {json.dumps(headers, indent=2)}", save=True)
+                if attempt == self.retries:
+                    raise
+                await asyncio.sleep(self.backoff * attempt * (random.randint(1, 10) / 10))
+
+
+    @staticmethod
+    async def get_exchange_rate(currency: str = "PLN") -> float:
+        """
+        Возвращает курс EUR -> currency.
+        """
+        currency_dict = {
+            "PLN": 4.7,
+            "CZK": 25.4,
+            "ITP": 1.05
+        }
+        return currency_dict[currency]
+
+
+    @staticmethod
+    def format_price(price: float) -> int:
+        """
+        Округляет цену в большую сторону и заменяет последнюю цифру на 9.
+        Например, 12.34 -> 19.99, 56.78 -> 59.99
+        Args:
+            price (float): Исходная цена.
+        Returns:
+            int: Отформатированная цена в центах.
+        """
+        # округляем в большую сторону
+        price_up = math.ceil(price)
+
+        # отбрасываем последнюю цифру и прибавляем 9
+        return ((price_up // 10) * 10 + 9) * 100
+
+
+    async def _make_price(self, storefront, price):
+        """
+            Функция которая создает цену взависимости от страны
+            Принимает страну и цену
+        """
+        if storefront == "cz":
+            rate = await self.get_exchange_rate("CZK")
+            total_price = int(self.format_price(rate * price))
+        elif storefront == "pl":
+            rate = await self.get_exchange_rate("PLN")
+            total_price = int(self.format_price(rate * price))
+        elif storefront == "fr" or storefront == "it":
+            rate = await self.get_exchange_rate("ITP")  # ITP Increased Tax Price = EUR_1.05
+            total_price = int(self.format_price(price * rate))
+        else:
+            total_price = int(self.format_price(price))
+        return total_price
+
+
+    @staticmethod
+    async def status_processing(tasks: list) -> bool:
+        """
+            Функция для обработки статуса всех тасков.
+            Если все успешно возвращает True иначе False.
+        """
+        bool_list = []
+        for elem in range(0, len(tasks), 10):
+            new_tasks = tasks[elem:elem + 10]
+            result = await asyncio.gather(*new_tasks)
+            if all(result):
+                bool_list.append(True)
+            else:
+                bool_list.append(False)
+        if all(bool_list):
+            return True
+        return False
+
+
+    async def _fetch_unit_id_by_ean(self, ean):
+        """
+            Функция которая собирает unit_id
+            о продукте по его EAN со всех стран
+        """
+        final_res = {}
+        for storefront in storefronts:
+            url = f"{self.base_api_url}/products/ean/{ean}?storefront={storefront}&embedded=units"
+            result = await self._universal_request(method="GET", url=url)
+            id_unit = result.get("data", {}).get("units", [{}])[0].get("id_unit", None)
+            if id_unit:
+                final_res[storefront] = id_unit
+        return final_res
+
+
+    async def _fetch_product_id_by_ean(self, ean):
+        """
+            Функция которая собирает product_id
+            о продукте по его EAN со всех стран
+        """
+        final_res = {}
+        for storefront in storefronts:
+            url = f"{self.base_api_url}/products/ean/{ean}?storefront={storefront}&embedded=units"
+            result = await self._universal_request(method="GET", url=url)
+            log(f"Подтянули данные по product_id: {result}")
+            product_id = result.get("data", {}).get("id_product", "")
+            if product_id:
+                final_res[storefront] = product_id
+        return final_res
+
+
+    async def _add_unit_id(self, ean, price, delivery):
+        """
+            Функция для создания внутренного id продукта
+            для Kaufland
+        """
+        bool_list = []
+
+        for storefront in storefronts:
+            url = f"{self.base_api_url}/units?storefront={storefront}&embedded=eco_participation"
+            formatted_price = await self._make_price(storefront=storefront, price=price)
+
+            body = {
+                "amount": 20,
+                "handling_time": delivery,
+                "listing_price": formatted_price,
+                "ean": str(ean),
+                "id_offer": f"{ean}",
+                "condition": "NEW"
+            }
+
+            result = await self._universal_request("POST", url, body=body)
+
+            if result.get("data", {}).get("status", "") == "AVAILABLE":
+                log(f"Unit был создан для EAN: {ean} в стране: {storefront}", save=True)
+                bool_list.append(True)
+            else:
+                log(f"Не получилось создать Unit: {result}", save=True)
+                log(f"Вот такие данные: body:{json.dumps(body, indent=2)}\nstorefront:{storefront}", save=True)
+                bool_list.append(False)
+        if all(bool_list):
+            log(f"Продукт {ean} для всех стран был создан")
+            return True
+        return False
+
+
+    async def _fetch_old_price_by_unit_id(self, units_id_dict:dict[str, str]):
+        """
+            Функция которая собирает старую цену
+            о продукте по его unit_id
+        """
+        final_res = {}
+        for storefront, unit_id in units_id_dict.items():
+            url = f"{self.base_api_url}/units/{unit_id}?storefront={storefront}&embedded=products"
+            result = await self._universal_request(method="GET", url=url)
+            if result:
+                price = result.get("data", {}).get("listing_price", None)
+                final_res[unit_id] = price
+        return final_res
+
+
+    async def _fetch_main_data_by_ean(self, ean):
+        """
+            Функция которая собирает unit_id, title, price
+        """
+        final_res = []
+        for storefront in storefronts:
+            url = f"{self.base_api_url}/products/ean/{ean}?storefront={storefront}&embedded=units"
+            result = await self._universal_request(method="GET", url=url)
+            id_unit = result.get("data", {}).get("units", [{}])[0].get("id_unit", None)
+            if id_unit:
+                title = result["data"]["title"]
+                price = float(result["data"]["units"][0]["price"]) / 100
+                storefront = result["data"]["storefront"]
+                final_res.append({"ean": ean, "title": title, "price": price, "storefront": storefront})
+        return final_res
+
+
+    async def _update_price_by_unit_id(self, ean, price):
+        """
+            Обновление цены по его unit_id
+        """
+        channel_layer = get_channel_layer()
+        log(f"EAN: {ean}")
+        final_res = await self._fetch_unit_id_by_ean(ean)
+
+        if final_res:
+            old_price_dict = await self._fetch_old_price_by_unit_id(final_res)
+            bool_list = []
+            for storefront, unit_id in final_res.items():
+                url = f"{self.base_api_url}/units/{unit_id}?storefront={storefront}&embedded=eco_participation"
+                total_price = await self._make_price(storefront=storefront, price=price)
+                payload = {
+                  "listing_price": total_price
+                }
+                result = await self._universal_request(method="PATCH", url=url, body=payload)
+                message = result["message"]
+
+                if message == "success":
+                    await channel_layer.group_send(
+                        "price_updates",  # Группа
+                        {
+                            "type": "price_update",
+                            "ean": ean,
+                            "new_price": total_price / 100, # Для удобства менеджеров
+                            "old_price": old_price_dict[unit_id] / 100, # Для удобства менеджеров
+                            "storefront": storefront,
+                            "timestamp": datetime.now().isoformat(),
+                            "result": message
+                        }
+                    )
+                    log(f"Обновили цену price: {price} EAN:{ean} unit_id:{unit_id} country: {storefront}", save=True)
+                    bool_list.append(True)
+                elif message == "not found":
+                    await channel_layer.group_send(
+                        "price_updates",  # Группа
+                        {
+                            "type": "price_update",
+                            "ean": ean,
+                            "new_price": 0,
+                            "old_price": 0,
+                            "storefront": storefront,
+                            "timestamp": datetime.now().isoformat(),
+                            "result": message
+                        }
+                    )
+                    log(f"Обновили цену price: {price} EAN:{ean} unit_id:{unit_id} country: {storefront}", save=True)
+                    bool_list.append(True)
+                else:
+                    await channel_layer.group_send(
+                        "price_updates",  # Группа
+                        {
+                            "type": "price_update",
+                            "ean": ean,
+                            "new_price": 0,
+                            "old_price": 0,
+                            "storefront": storefront,
+                            "timestamp": datetime.now().isoformat(),
+                            "result": message
+                        }
+                    )
+                    log(f"Что-то пошло не так не обновили цену {price} EAN:{ean} unit_id:{unit_id} country: {storefront}", save=True)
+                    bool_list.append(False)
+            if all(bool_list):
+                return True
+            else:
+                return False
+        await channel_layer.group_send(
+            "price_updates",  # Группа
+            {
+                "type": "price_update",
+                "ean": ean,
+                "new_price": 0,
+                "old_price": 0,
+                "storefront": "Все базы",
+                "timestamp": datetime.now().isoformat(),
+                "result": {"message": "Товара не существует"}
+            }
+        )
+        return True
+
+
+    async def _delete_product_by_unit_id(self, ean):
+        """
+            Функция которая удаляет товары по их
+            unit_id
+        """
+        channel_layer = get_channel_layer()
+        logs_dir = os.path.join(settings.MEDIA_ROOT, "logs")
+        logs_file_path = os.path.join(logs_dir, "delete_products_logs.csv")
+        os.makedirs(logs_dir, exist_ok=True)
+
+        final_res = await self._fetch_unit_id_by_ean(ean)
+        log(f"Пришел final_res для удаления ean: {ean}", save=True)
+        if final_res:
+            log(f"ean: {ean} | final_res: {final_res}", save=True)
+            bool_list = []
+            for storefront, unit_id in final_res.items():
+                url = f"{self.base_api_url}/units/{unit_id}?storefront={storefront}"
+                result = await self._universal_request(method="DELETE", url=url)
+                if result:
+                    bool_list.append(True)
+                    log(f"Был удален товар из Kaufland {self.version} EAN: {ean} Страна: {storefront}", save=True)
+                    with open(logs_file_path, "a", encoding="utf-8") as file:
+                        file.write(f"\nБыл удален товар из Kaufland {self.version} EAN: {ean} "
+                                   f"Страна: {storefront}\n")
+                else:
+                    bool_list.append(False)
+                    log(f"Товар не был удален из Kaufland {self.version} EAN: {ean} Страна: {storefront}", save=True)
+                    with open(logs_file_path, "a", encoding="utf-8") as file:
+                        file.write(f"\nТовар не был удален из Kaufland {self.version} EAN: {ean} "
+                                   f"Страна: {storefront}\n")
+
+                await channel_layer.group_send(
+                    'delete_group',
+                    {
+                        'type': 'delete_message',
+                        'message': {'info': "Удален"} if result else {"info": "Не удален"},
+                        'controller': self.version,
+                        'ean': ean,
+                        "storefront": storefront,
+                    }
+                )
+
+            return True if all(bool_list) else False
+
+        log(f"Нет Final res ean: {ean}", save=True)
+
+        await channel_layer.group_send(
+            'delete_group',
+            {
+                'type': 'delete_message',
+                'message': {'info': "Нету unit-ids"},
+                'controller': self.version,
+                'ean': ean,
+                "storefront": "Все базы",
+            }
+        )
+
+        log(f"Не существует такого EAN: {ean}", save=True)
+        with open(logs_file_path, "a", encoding="utf-8") as file:
+            file.write(f"\nНе существует такого EAN: {ean}\n")
+        return True
+
+
+    async def _check_product_by_unit_id(self, ean):
+        """
+            Выводит чек 1 продукта по unit_id
+        """
+        channel_layer = get_channel_layer()
+        final_res = await self._fetch_main_data_by_ean(ean)
+        await channel_layer.group_send(
+            'realtime_group',
+            {
+                'type': 'realtime_message',
+                'message': {'controller': self.version, 'ean': ean, 'final_res': final_res},
+                'controller': self.version,
+                'ean': ean
+            }
+        )
+        if final_res:
+            log(f"Пришел Res: {final_res}")
+            return final_res
+        log(f"Пришел Res: {final_res}")
+        return {"ean": ean, "title": None, "price": None, "storefront": None}
+
+
+    async def _category_selector(self, article, price, ean, description):
+        """
+            Функция которая определяет категорию на основе article
+            и его description
+        """
+        item_for_category_js = {
+            "item": {
+                "title": article,
+                "description": description,
+                "manufacturer": "AEA GmbH & Co. KG"
+            },
+            "price": price
+        }
+        url_category = f"{self.base_api_url}/categories/decide?storefront=de&locale=de-DE"
+        result_category = await self._universal_request(method="POST", url=url_category, body=item_for_category_js)
+        if "data" not in result_category:
+            log(f"ERROR WITH CATEGORY: {result_category} article: {article}, price: {price}, ean: {ean}, description: {description}", save=True)
+            return None, None
+        category_id = result_category["data"][0]["id_category"]
+        category_name = result_category["data"][0]["name"]
+        return category_id, category_name
+
+
+    async def _create_product(self, elem):
+        """
+            Функция для создания продукта приходит elem: dict
+        """
+        if not elem["ean"]:
+            log(f"ERROR WITH EAN: elem: {elem}", save=True)
+            return False
+        elif not elem["article"]:
+            log(f"ERROR WITH ARTICLE: elem: {elem}", save=True)
+            return False
+        elif elem["price"] < 30:
+            log(f"ERROR WITH PRICE: elem: {elem}", save=True)
+            return False
+        elif not elem["pic_main"]:
+            log(f"ERROR WITH PIC: elem: {elem}", save=True)
+            return False
+
+        log(f"Создаем продукт с EAN: {elem['ean']}", save=True)
+
+        article = elem["article"]
+        size = elem["size"]
+        color = elem["color"]
+        material = elem["material"]
+        price = int(elem["price"])
+        total = [elem["pic_main"]] + elem["pics"] if len(elem["pics"]) > 0 and elem["pics"][0] else [elem["pic_main"]]
+        fabric = elem["fabric"]
+
+        if isinstance(material, list):
+            material = ", ".join(material)
+
+        if isinstance(color, list):
+            color = ", ".join(color)
+
+        delivery = 28
+
+        if "cn" in fabric.lower():
+            delivery = 40
+        elif "tr" in fabric.lower() or "pl" in fabric.lower() or "it" in fabric.lower():
+            delivery = 32
+
+        ean = elem["ean"]
+
+        pics = await process_pics(total)
+
+        height = elem["height"]
+        length = elem["length"]
+        width = elem["width"]
+        description = await generate_description(article, size, color, material)
+
+        # Получаем HTML-описание из extracter (оригинал из файла), затем добавляем в атрибуты
+        try:
+            new_webtag = await adapt_html_description(ean, description)
+        except Exception as e:
+            log(f"Ошибка при адаптации HTML описания для EAN {ean}: {e}", save=True)
+            new_webtag = description
+        category_id, category_name = await self._category_selector(article, price, ean, description)
+        if category_id is None:
+            log(f"ERROR WITH CATEGORY ID IS NONE: EAN: {ean}", save=True)
+            return False
+
+        seo_list = await generate_seo(
+            article=article,
+            size=size,
+            color=color,
+            material=material
+        )
+
+        attributes = {
+            "title": [article],
+            "description": [new_webtag],
+            "ean": [ean],
+            "picture": pics,
+            "category": [
+                category_name
+            ],
+            "category_detail": {
+                    "id": category_id,
+                    "title": category_name,
+                    "name": category_name
+            },
+            "short_description": seo_list
+        }
+
+        optional_fields = {
+            "colour": color,
+            "height": height,
+            "length": length,
+            "width": width,
+            "material": material,
+            "material_composition": 'No information required'
+        }
+
+        for key, value in optional_fields.items():
+            if value:
+                attributes[key] = [value]
+
+        json_body = {
+            "ean": [ean],
+            "attributes": attributes
+        }
+
+        if self.version == "jv":
+            json_body["attributes"]["manufacturer"] = JV_MANUFACTURER
+            json_body["attributes"]["product_safety_contact"] = JV_CONTACT_DATA
+        else:
+            json_body["attributes"]["manufacturer"] = XL_MANUFACTURER
+            json_body["attributes"]["product_safety_contact"] = XL_CONTACT_DATA
+
+        url = f"{self.base_api_url}/product-data?locale=de-DE"
+        result = await self._universal_request("PUT", url, json_body)
+        if result.get("data") == "Content created or replaced":
+            log(f"Тело продукта создалось с EAN: {ean}", save=True)
+            unit_ids = await self._fetch_unit_id_by_ean(ean)
+            if unit_ids:
+                log(f"Продукт c таким EAN ({ean}) уже существует, обновляем цену", save=True)
+                result = await self._update_price_by_unit_id(ean, price)
+                log(f"Результат обновления цены продукта с EAN: {ean} результат: {result}", save=True)
+                return result
+            else:
+                log(f"Продукта c таким EAN ({ean}) нет, создаем новый", save=True)
+                result = await self._add_unit_id(ean, price, delivery)
+                log(f"Результат создания продукта с EAN: {ean} результат: {result}", save=True)
+                return result
+        else:
+            log(f"ERROR WITH CREATING PRODUCT BODY: {result} elem: {elem}", save=True)
+            return False
+
+
+    async def delete_all_products(self, eans):
+        """
+            Удаление товаров по их EAN со всех сайтов в kaufland
+        """
+        logs_dir = os.path.join(settings.MEDIA_ROOT, "logs")
+        logs_file_path = os.path.join(logs_dir, "delete_products_logs.csv")
+
+        # Проверка существования файла
+        if os.path.exists(logs_file_path):
+            os.remove(logs_file_path)
+            log(f"Файл {logs_file_path} успешно удалён")
+        else:
+            log(f"Файл {logs_file_path} не существует")
+
+        tasks = [self._delete_product_by_unit_id(str(int(float(ean)))) for ean in eans if ean and ean != "nan"]
+        status_result = await self.status_processing(tasks)
+        return status_result
+
+
+    async def update_price(self, eans_and_prices):
+        """
+            Функция для обновления цен по EAN с уже указанным price
+        """
+        log(f"Вот такой eans_and_prices: {eans_and_prices}", save=True)
+        logs_dir = os.path.join(settings.MEDIA_ROOT, "logs")
+        logs_file_path = os.path.join(logs_dir, "update_price_logs.csv")
+
+        # Проверка существования файла
+        if os.path.exists(logs_file_path):
+            os.remove(logs_file_path)
+            log(f"Файл {logs_file_path} успешно удалён")
+        else:
+            log(f"Файл {logs_file_path} не существует")
+
+        tasks = [self._update_price_by_unit_id(str(int(float(ean))), price) for ean, price in eans_and_prices.items() if ean and ean != "nan"]
+        status_result = await self.status_processing(tasks)
+        return status_result
+
+
+    async def products_checker(self, eans):
+        """
+            Чекер продуктов выводит их ean, title, price
+        """
+        final_result = []
+        tasks = [self._check_product_by_unit_id(str(int(float(ean)))) for ean in eans if ean and ean != "nan"]
+        for elem in range(0, len(tasks), 10):
+            new_tasks = tasks[elem:elem + 10]
+            result = await asyncio.gather(*new_tasks)
+            for elem in result:
+                final_result.extend(elem)
+        return final_result
+
+
+    async def upload_via_json(self, data: list[dict]) -> bool | None:
+        """
+            Функция для загрузки товаров на Kaufland через JSON
+            Arguments:
+                data (list[dict]): Список товаров в формате словаря
+            Returns:
+                optional[bool]:
+                    - True: все товары успешно загружены
+                    - False: загружены не все товары
+                    - None: все товары не загружены
+        """
+        # Компилируем регулярное выражение для поиска ключевых слов
+        pattern = re.compile(r"(delet\w*|remove\w*|l[oö]sch\w*)", re.IGNORECASE)
+
+        # Сохраняем исходную длину данных
+        original_len = len(data)
+
+        # Фильтруем данные, исключая элементы, содержащие ключевые слова
+        data = [elem for elem in data if not pattern.search(elem["article"])]
+
+        result_list = []
+        step = 3
+
+        # Если были удалены элементы, фиксируем это
+        if len(data) < original_len:
+            result_list.append(False)
+
+        tasks = [self._create_product(elem) for elem in data]
+        for elem in range(0, len(data), step):
+            result = await asyncio.gather(*tasks[elem:elem + step])
+            if all(result):
+                result_list.append(True)
+            else:
+                result_list.append(False)
+
+        if all(result_list):  # Все успешно
+            return True
+        elif any(result_list) and not all(result_list):  # Частично успешно
+            return False
+        elif not any(result_list):  # Все неуспешно
+            return None
+
+
+async def main():
+    async with aiohttp.ClientSession() as session:
+        cnt = KauflandController(session, version="jv")
+        ean_dict = {
+            "4067282748224": 4999,
+            "4067282749382": 4999,
+            "4067282736344": 4999,
+            "4067282749030": 4999,
+            "4067282748941": 4999,
+            "4067282749214": 4999,
+            "4067282736887": 4999,
+            "4067282749290": 4999,
+            "4067282749122": 4999,
+            "4067282748316": 4999,
+            "4067282736795": 4999,
+            "4067282748132": 4999,
+            "4067282737150": 4999,
+            "4067282736078": 4999,
+            "4067282736160": 4999,
+            "4067282748859": 4999,
+            "4067282737426": 4999,
+            "4067282740051": 4999,
+            "4067282748767": 4999,
+            "4067282740310": 4999,
+            "4067282735613": 4999,
+            "4067282731301": 4999,
+            "4067282740228": 4999,
+            "4067282736528": 4999,
+            "4067282737068": 4999,
+            "4067282748675": 4999,
+            "4067282736610": 4999,
+            "4067282736252": 4999,
+            "4067282735354": 4999,
+            "4067282737242": 4999,
+            "4067282737334": 4999,
+            "4067282736702": 4999,
+            "4067282735897": 4999,
+            "4062292279850": 4999,
+            "4067282735262": 4999,
+            "4062292723353": 4999,
+            "4062292419706": 4999,
+            "4067282498785": 4999,
+            "4067282497658": 4999,
+            "4067282740150": 4999,
+            "4067282736009": 4999,
+            "4067282736993": 4999,
+        }
+        settings.configure()
+
+        # for ean, price in ean_dict.items():
+        #     result = await cnt._add_unit_id(ean, price, 28)
+        #     log(result)
+        # https://sellerapi.kaufland.com/v2/units/387978729501?storefront=de&embedded=battery_participation
+
+
+if __name__ == '__main__':
+    asyncio.run(main())
+

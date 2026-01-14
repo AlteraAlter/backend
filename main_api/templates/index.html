@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Real-Time Data</title>
+    <style>
+        .column {
+            float: left;
+            width: 45%;
+            margin: 10px;
+            padding: 10px;
+            border: 1px solid #ccc;
+        }
+        .clear {
+            clear: both;
+        }
+    </style>
+</head>
+<body>
+    <h1>Real-Time Updates</h1>
+    <div class="column">
+        <h2>Нету в Базе</h2>
+        <div id="not_in_db"></div>
+    </div>
+    <div class="column">
+        <h2>Есть в Базе</h2>
+        <div id="in_db"></div>
+    </div>
+    <div class="clear"></div>
+
+    <script>
+        const realtimeSocket = new WebSocket('ws://{{ WS_URL }}/ws/realtime/');
+        let notInDbHistory = [];
+        let inDbHistory = [];
+
+        realtimeSocket.onopen = function() {
+            console.log('Realtime WebSocket connected');
+        };
+
+        realtimeSocket.onmessage = function(event) {
+            const data = JSON.parse(event.data);
+            const notInDbDiv = document.getElementById('not_in_db');
+            const inDbDiv = document.getElementById('in_db');
+
+            if (data.not_in_db && data.not_in_db.length > 0) {
+                notInDbHistory = notInDbHistory.concat(data.not_in_db);
+            }
+            if (data.in_db && data.in_db.length > 0) {
+                inDbHistory = inDbHistory.concat(data.in_db);
+            }
+
+            notInDbDiv.innerHTML = notInDbHistory.map(item =>
+                `<p>EAN: ${item.ean || 'N/A'}, Controller: ${item.controller || 'N/A'}</p>`
+            ).join('');
+            inDbDiv.innerHTML = inDbHistory.map(item => {
+                let messageText = '';
+                if (item.message && Array.isArray(item.message) && item.message.length > 0) {
+                    messageText = `<br>Message: ${JSON.stringify(item.message[0])}`;
+                }
+                return `<p>EAN: ${item.ean || 'N/A'}, Controller: ${item.controller || 'N/A'}${messageText}</p>
+                        <hr style="width: 30%; display: block; margin: auto;">`;
+            }).join('');
+        };
+
+        realtimeSocket.onclose = function(event) {
+            console.log('Realtime WebSocket closed:', event);
+        };
+    </script>
+</body>
+</html>

@@ -1,0 +1,74 @@
+services:
+  django:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: kaufland_django
+    restart: unless-stopped
+    volumes:
+      - .:/app
+      - media_volume:/app/media
+      - static_files:/app/static
+    env_file:
+      - .env.docker
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - kaufland_network
+    command: >
+      sh -c "python manage.py migrate &&
+             python manage.py collectstatic --noinput &&
+             uvicorn kaufland_API.asgi:application --host 0.0.0.0 --port 8000 --reload"
+
+  postgres:
+    image: postgres:17.1
+    restart: unless-stopped
+    container_name: kaufland_postgres
+    env_file:
+      - .env.docker
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - kaufland_network
+
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    container_name: kaufland_redis
+    networks:
+      - kaufland_network
+    healthcheck:
+      test: [ "CMD", "redis-cli", "--raw", "incr", "ping" ]
+
+  nginx:
+    image: nginx:latest
+    restart: unless-stopped
+    container_name: kaufland_nginx
+    ports:
+      - "8050:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - static_files:/app/static
+      - media_volume:/app/media
+    depends_on:
+      django:
+        condition: service_started
+    networks:
+      - kaufland_network
+
+volumes:
+  media_volume:
+  postgres_data:
+  static_files:
+
+networks:
+  kaufland_network:
+    driver: bridge

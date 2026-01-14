@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Real-Time Delete Operations</title>
+    <style>
+
+        .column {
+            float: left;
+            width: 45%;
+            margin: 10px;
+            padding: 10px;
+            border: 1px solid #ccc;
+        }
+        .clear {
+            clear: both;
+        }
+        .item {
+            margin-bottom: 5px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Real-Time Delete Operations</h1>
+    <div class="column">
+        <h2>Удалено</h2>
+        <div id="deleted_items"></div>
+    </div>
+    <div class="column">
+        <h2>Не удалено</h2>
+        <div id="failed_items"></div>
+    </div>
+    <div class="clear"></div>
+
+    <script>
+        const deleteSocket = new WebSocket('ws://{{ WS_URL }}/ws/real-delete/');
+        let deletedItemsHistory = [];
+        let failedItemsHistory = [];
+
+        deleteSocket.onopen = function() {
+            console.log('Delete WebSocket connected');
+        };
+
+        deleteSocket.onmessage = function(event) {
+            const data = JSON.parse(event.data);
+            const deletedItemsDiv = document.getElementById('deleted_items');
+            const failedItemsDiv = document.getElementById('failed_items');
+
+            // Накопление данных
+            if (data.deleted_items && data.deleted_items.length > 0) {
+                deletedItemsHistory = deletedItemsHistory.concat(data.deleted_items);
+            }
+            if (data.failed_items && data.failed_items.length > 0) {
+                failedItemsHistory = failedItemsHistory.concat(data.failed_items);
+            }
+
+            // Отображение удалённых товаров
+            deletedItemsDiv.innerHTML = deletedItemsHistory.map(item => `
+                <div class="item">
+                    <p><strong>EAN:</strong> ${item.ean || 'N/A'}</p>
+                    <p><strong>Controller:</strong> ${item.controller || 'N/A'}</p>
+                    <p><strong>Storefront:</strong> ${item.storefront || 'N/A'}</p>
+                    <p><strong>Message:</strong> ${JSON.stringify(item.message) || 'N/A'}</p>
+                    <hr style="width: 30%; display: block; margin: auto;">
+                </div>
+            `).join('');
+
+            // Отображение неудалённых товаров
+            failedItemsDiv.innerHTML = failedItemsHistory.map(item => `
+                <div class="item">
+                    <p><strong>EAN:</strong> ${item.ean || 'N/A'}</p>
+                    <p><strong>Controller:</strong> ${item.controller || 'N/A'}</p>
+                    <p><strong>Storefront:</strong> ${item.storefront || 'N/A'}</p>
+                    <p><strong>Message:</strong> ${JSON.stringify(item.message) || 'N/A'}</p>
+                    <hr style="width: 30%; display: block; margin: auto;">
+                </div>
+            `).join('');
+        };
+
+        deleteSocket.onclose = function(event) {
+            console.log('Delete WebSocket closed:', event);
+        };
+    </script>
+</body>
+</html>
