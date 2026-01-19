@@ -8,19 +8,22 @@ from rest_framework import serializers
 class FileUploadSerializer(serializers.Serializer):
     controller = serializers.ChoiceField(choices=["jv", "xl"])
     file = serializers.FileField()
-    mode = serializers.ChoiceField(choices=["delete", "change_price", "checker", "invalid_items"])
+    mode = serializers.ChoiceField(
+        choices=["delete", "change_price", "checker", "invalid_items"]
+    )
 
     def validate_file(self, value):
         """
         Проверка расширения файла
         """
-        valid_extensions = ['.xlsx', '.csv']
+        valid_extensions = [".xlsx", ".csv"]
         ext = os.path.splitext(value.name)[1].lower()
         if ext not in valid_extensions:
             raise serializers.ValidationError(
                 f"Неподдерживаемый формат файла. Разрешены только: {', '.join(valid_extensions)}"
             )
         return value
+
 
 class ControllerSerializer(serializers.Serializer):
     controller = serializers.ChoiceField(choices=["jv", "xl"])
@@ -44,14 +47,20 @@ class JsonFileSerializer(serializers.Serializer):
         content_type = getattr(uploaded_file, "content_type", None)
         if content_type:
             # allow when prefix matches (например "application/json; charset=utf-8")
-            if not any(content_type.startswith(pref) for pref in self.ALLOWED_MIME_PREFIXES):
-                raise serializers.ValidationError("Неверный MIME-type: ожидается JSON файл.")
+            if not any(
+                content_type.startswith(pref) for pref in self.ALLOWED_MIME_PREFIXES
+            ):
+                raise serializers.ValidationError(
+                    "Неверный MIME-type: ожидается JSON файл."
+                )
 
         # 2) Проверяем расширение (если имя присутствует)
         filename = getattr(uploaded_file, "name", "")
         _, ext = os.path.splitext(filename.lower())
         if ext and ext not in self.ALLOWED_EXTENSIONS:
-            raise serializers.ValidationError("Неверное расширение файла: ожидается .json")
+            raise serializers.ValidationError(
+                "Неверное расширение файла: ожидается .json"
+            )
 
         # 3) Проверяем что содержимое — корректный JSON
         # uploaded_file может быть InMemoryUploadedFile или TemporaryUploadedFile
@@ -67,7 +76,7 @@ class JsonFileSerializer(serializers.Serializer):
             raw = uploaded_file.read()
             # raw может быть bytes или str
             if isinstance(raw, bytes):
-                text = raw.decode('utf-8')
+                text = raw.decode("utf-8")
             else:
                 text = raw
 
@@ -101,7 +110,7 @@ class JsonFileSerializer(serializers.Serializer):
         try:
             raw = uploaded_file.read()
             if isinstance(raw, bytes):
-                text = raw.decode('utf-8')
+                text = raw.decode("utf-8")
             else:
                 text = raw
             parsed = json.loads(text)
@@ -116,18 +125,22 @@ class JsonFileSerializer(serializers.Serializer):
 
 class CombinedUploadSerializer(serializers.Serializer):
     """
-        Сериализатор который используется для валидации и контроллера
-        и передаваемого json
+    Сериализатор который используется для валидации и контроллера
+    и передаваемого json
     """
+
     controller = serializers.CharField()
     file = serializers.FileField()
 
     def to_internal_value(self, data):
         # 1️⃣ Валидируем controller через ControllerSerializer
-        controller_serializer = ControllerSerializer(data={"controller": data.get("controller")})
+        controller_serializer = ControllerSerializer(
+            data={"controller": data.get("controller")}
+        )
         controller_serializer.is_valid(raise_exception=True)
 
         # 2️⃣ Валидируем file через JsonFileSerializer
+        print(f"DATA: {data.get("file")}")
         file_serializer = JsonFileSerializer(data={"file": data.get("file")})
         file_serializer.is_valid(raise_exception=True)
 

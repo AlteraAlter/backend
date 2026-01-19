@@ -6,7 +6,7 @@ import aiohttp
 
 async def post_request(session, url, headers, data):
     """
-        Универсальная функция для POST-запросов
+    Универсальная функция для POST-запросов
     """
     try:
         async with session.post(url, headers=headers, json=data) as response:
@@ -19,7 +19,7 @@ async def post_request(session, url, headers, data):
 
 async def get_request(session, url, headers):
     """
-        Универсальная функция для GET-запросов
+    Универсальная функция для GET-запросов
     """
     try:
         async with session.get(url, headers=headers) as response:
@@ -32,7 +32,7 @@ async def get_request(session, url, headers):
 
 def token_required(f):
     """
-        Декоратор для проверки и обновления токенов
+    Декоратор для проверки и обновления токенов
     """
 
     @wraps(f)

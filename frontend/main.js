@@ -168,6 +168,7 @@ document.getElementById('upload-button-change-price').addEventListener('click', 
 
 document.getElementById('upload-button-upload').addEventListener('click', async () => {
     const files = pondUpload.getFiles();
+    console.log(files);
     if (files.length === 0) {
         document.getElementById('upload-message-upload').textContent = 'Please select at least one file.';
         return;

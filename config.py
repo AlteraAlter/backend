@@ -60,3 +60,7 @@ JV_CONTACT_DATA = {
 }
 
 JV_MANUFACTURER = "AEA GmbH & Co. KG"
+
+SSH_HOST = os.getenv('SSH_HOST')
+SSH_USER = os.getenv('SSH_USER')
+SSH_KEY_PATH = os.getenv('SSH_KEY_PATH')

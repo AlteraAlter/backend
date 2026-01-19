@@ -1,6 +1,6 @@
 // ==================== ПРОСТО РАБОЧИЙ JWT ФРОНТ ====================
 // Вставляй вместо всего твоего main.js
-
+console.log("🔥🔥🔥 DEBUG MAIN JS — SHOULD BE VISIBLE 🔥🔥🔥");
 const API_BASE = '';
 
 function setToken(token) { localStorage.setItem('jwt', token); }
@@ -78,56 +78,6 @@ async function apiFetch(url, options = {}) {
     }
     return resp;
 }
-
-// ===================== ТВОИ ТРИ ЗАГРУЗКИ (ПРОСТО ЗАМЕНИ) =====================
-
-async function uploadHandler(pond, url, modeSelectId, controllerSelectId, messageId) {
-    const files = pond.getFiles();
-    const msg = document.getElementById(messageId);
-    if (!files.length) return msg.textContent = 'Выбери файл!';
-
-    msg.textContent = 'Отправляю...';
-    const formData = new FormData();
-    files.forEach(f => {
-        const cleanName = f.filename.replace(/[^a-zA-Z0-9._-]/g, '_');
-        formData.append('file', f.file, cleanName);
-    });
-    formData.append('mode', document.getElementById(modeSelectId).value);
-    formData.append('controller', document.getElementById(controllerSelectId).value);
-
-    const resp = await apiFetch(url || '/api/kaufland_main/', { method: 'POST', body: formData });
-    if (!resp) return;
-
-    if (resp.ok) {
-        if (msg.id === 'upload-message-delete' && formData.get('mode') === 'checker') {
-            const blob = await resp.blob();
-            const a = document.createElement('a');
-            a.href = URL.createObjectURL(blob);
-            a.download = 'result.xlsx';
-            a.click();
-            msg.textContent = 'Скачано!';
-        } else {
-            const json = await resp.json();
-            msg.textContent = json.message || 'Готово!';
-            pond.removeFiles();
-        }
-    } else {
-        const err = await resp.json();
-        msg.textContent = err.error || err.detail || 'Ошибка';
-    }
-}
-
-// Привязываем кнопки
-document.getElementById('upload-button-delete').onclick = () => uploadHandler(
-    pondDelete, '/api/kaufland_main/', 'mode-select-delete', 'controller-select-delete', 'upload-message-delete'
-);
-document.getElementById('upload-button-change-price').onclick = () => uploadHandler(
-    pondChangePrice, '/api/kaufland_main/', 'mode-select-price', 'controller-select-price', 'upload-message-change-price'
-);
-document.getElementById('upload-button-upload').onclick = () => uploadHandler(
-    pondUpload, '/api/kaufland_main/upload_json/', 'mode-select-upload', 'controller-select-upload', 'upload-message-upload'
-);
-
 // ==================== FILEPOND И КНОПКИ (РАБОЧАЯ ВЕРСИЯ) ====================
 
 // Инициализация FilePond (это у тебя уже было — оставь как есть)
@@ -186,7 +136,8 @@ async function uploadHandler(pond, url, modeId, controllerId, messageId) {
         }
     } else {
         const err = await resp.json();
-        msg.textContent = err.error || err.detail || 'Ошибка сервера';
+        console.log(err)
+        msg.textContent = err.error || err.detail || err.message || 'Ошибка сервера';
     }
 }
 
