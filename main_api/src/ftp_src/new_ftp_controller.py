@@ -1,6 +1,7 @@
 import asyncio
 import aiohttp
 import aiofiles
+import tempfile
 import os
 import io
 from PIL import Image
@@ -8,13 +9,12 @@ from urllib.parse import urlparse
 import aioftp
 import random
 import time
-from main_api.src.logger import log
+from src.logger import log
 from collections import defaultdict
+from rest_framework import status
 from config import FTP_HOST, FTP_PASSWORD, FTP_USERNAME
 
-
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-IMG_DIR = os.path.join(BASE_DIR, "media", "imgs")
+IMG_DIR = os.path.join(tempfile.gettempdir(), "kaufland_img")
 os.makedirs(IMG_DIR, exist_ok=True)
 
 FTP_REMOTE_DIR = "/automatonsoft.de/kaufland/"
@@ -51,7 +51,7 @@ class RateLimiter:
 rate_limiter = RateLimiter()
 
 
-def clean_filename(filename):
+def clean_filename(filename) -> str:
     """Аналог slugify, адаптированный из main.js"""
     name, ext = os.path.splitext(filename)
     name = name.replace(" ", "-")
@@ -132,28 +132,26 @@ def clean_filename(filename):
     return f"{name}{ext.lower()}"
 
 
-async def download_and_process_image(session: aiohttp.ClientSession, url: str):
+async def download_and_process_image(
+    session: aiohttp.ClientSession,
+    url: str,
+    output_dir: str,
+) -> str | None:
+    """
+    Downloads image, validates, resizes, compresses and stores it as a TEMP file.
+    Returns local file path or None on failure.
+    """
+
     async with http_semaphore:
         parsed = urlparse(url)
-        host = parsed.netloc
-        await rate_limiter.wait_if_needed(host)
-
         original_name = os.path.basename(parsed.path)
         clean_name = clean_filename(original_name)
 
-        name, ext = os.path.splitext(original_name)
-        ext = ext.lower().lstrip(".") or "jpg"
+        ext = os.path.splitext(clean_name)[1].lower().lstrip(".")
         if ext == "jpeg":
             ext = "jpg"
-
-        timestamp = int(time.time())
-
-        MAX_FILE_SIZE = 9 * 1024 * 1024
-        MIN_W, MIN_H = 2098, 2098
-        ALLOWED_EXT = {"jpg", "png", "webp", "gif", "svg"}
-
-        def build_path(extension):
-            return os.path.join(IMG_DIR, f"{clean_name}_{timestamp}.{extension}")
+        if ext not in ALLOWED_EXTENSIONS:
+            ext = "jpg"
 
         headers = {
             "User-Agent": "Mozilla/5.0",
@@ -165,14 +163,101 @@ async def download_and_process_image(session: aiohttp.ClientSession, url: str):
                 async with session.get(
                     url,
                     headers=headers,
-                    timeout=aiohttp.ClientTimeout(total=60),
+                    timeout=aiohttp.ClientTimeout(total=TIMEOUT),
                     ssl=False,
                 ) as resp:
-                    if resp.status == 429:
-                        wait = int(resp.headers.get("Retry-After", 60))
-                        await asyncio.sleep(wait + random.uniform(1, 3))
-                        continue
+                    if resp.status != 200:
+                        raise Exception(f"HTTP {resp.status}")
 
+                    content = await resp.read()
+
+                # SVG → save as-is
+                if ext == "svg":
+                    filename = f"{int(time.time())}_{clean_name}"
+                    path = os.path.join(output_dir, filename)
+                    async with aiofiles.open(path, "wb") as f:
+                        await f.write(content)
+                    return path
+
+                image = Image.open(io.BytesIO(content))
+
+                # RGBA → RGB
+                if image.mode in ("RGBA", "LA"):
+                    bg = Image.new("RGB", image.size, (255, 255, 255))
+                    bg.paste(image, mask=image.split()[-1])
+                    image = bg
+                    ext = "jpg"
+
+                width, height = image.size
+
+                # Ensure minimum resolution
+                if width < MIN_WIDTH or height < MIN_HEIGHT:
+                    scale = max(MIN_WIDTH / width, MIN_HEIGHT / height)
+                    image = image.resize(
+                        (int(width * scale), int(height * scale)),
+                        Image.LANCZOS,
+                    )
+
+                fmt = {
+                    "jpg": "JPEG",
+                    "png": "PNG",
+                    "webp": "WEBP",
+                    "gif": "GIF",
+                }.get(ext, "JPEG")
+
+                quality = 95
+                data = b""
+
+                for _ in range(6):
+                    buffer = io.BytesIO()
+                    image.save(buffer, format=fmt, quality=quality)
+                    data = buffer.getvalue()
+
+                    if len(data) <= MAX_FILE_SIZE:
+                        break
+
+                    quality = int(quality * 0.85)
+
+                if len(data) > MAX_FILE_SIZE:
+                    raise Exception("Image too large after compression")
+
+                filename = f"{int(time.time())}_{clean_name}"
+                path = os.path.join(output_dir, filename)
+
+                async with aiofiles.open(path, "wb") as f:
+                    await f.write(data)
+
+                return path
+
+            except Exception as e:
+                log(f"[IMG] {url} error ({attempt}/{MAX_RETRIES}): {e}")
+                if attempt == MAX_RETRIES:
+                    return None
+                await asyncio.sleep((2**attempt) + random.uniform(0.5, 2))
+        parsed = urlparse(url)
+        host = parsed.netloc
+        await rate_limiter.wait_if_needed(host)
+
+        original_name = os.path.basename(parsed.path)
+        clean_name = clean_filename(original_name)
+
+        ext = os.path.splitext(clean_name)[1].lower().lstrip(".") or "jpg"
+        if ext == "jpeg":
+            ext = "jpg"
+
+        headers = {
+            "User-Agent": "Mozilla/5.0",
+            "Accept": "image/webp,image/*,*/*;q=0.8",
+        }
+
+        for attempt in range(1, MAX_RETRIES + 1):
+            try:
+                async with session.get(
+                    url,
+                    headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=TIMEOUT),
+                    ssl=False,
+                ) as resp:
                     if resp.status != 200:
                         raise Exception(f"HTTP {resp.status}")
 
@@ -180,15 +265,12 @@ async def download_and_process_image(session: aiohttp.ClientSession, url: str):
 
                 # SVG — сохраняем как есть
                 if ext == "svg":
-                    path = build_path("svg")
+                    path = os.path.join(IMG_DIR, f"{int(time.time())}_{clean_name}")
                     async with aiofiles.open(path, "wb") as f:
                         await f.write(content)
                     return path
 
                 image = Image.open(io.BytesIO(content))
-
-                if ext not in ALLOWED_EXT:
-                    ext = "jpg"
 
                 # RGBA → RGB
                 if image.mode in ("RGBA", "LA"):
@@ -200,11 +282,12 @@ async def download_and_process_image(session: aiohttp.ClientSession, url: str):
                 width, height = image.size
 
                 # Resize только если файл слишком большой
-                if len(content) > MAX_FILE_SIZE:
-                    scale = max(MIN_W / width, MIN_H / height)
-                    if scale != 1:
-                        new_size = (int(width * scale), int(height * scale))
-                        image = image.resize(new_size, Image.LANCZOS)
+                if width < MIN_WIDTH or height < MIN_HEIGHT:
+                    scale = max(MIN_WIDTH / width, MIN_HEIGHT / height)
+                    image = image.resize(
+                        (int(width * scale), int(height * scale)),
+                        Image.LANCZOS,
+                    )
 
                 fmt = {"jpg": "JPEG", "png": "PNG", "webp": "WEBP", "gif": "GIF"}.get(
                     ext, "JPEG"
@@ -224,121 +307,16 @@ async def download_and_process_image(session: aiohttp.ClientSession, url: str):
                 if len(data) > MAX_FILE_SIZE:
                     raise Exception("Не удалось ужать изображение")
 
-                path = build_path(ext)
+                filename = f"{int(time.time())}_{clean_name}"
+                path = os.path.join(IMG_DIR, filename)
+
                 async with aiofiles.open(path, "wb") as f:
                     await f.write(data)
 
                 return path
 
             except Exception as e:
-                log(f"[{url}] ошибка ({attempt}/{MAX_RETRIES}): {e}")
+                log(f"[IMG] {url} ошибка ({attempt}/{MAX_RETRIES}): {e}")
                 if attempt == MAX_RETRIES:
                     return None
-                await asyncio.sleep((2**attempt) + random.uniform(1, 5))
-
-
-async def upload_to_ftp(local_path: str):
-    LOCAL_SAVE_DIR = "imgs/"
-
-    filename = os.path.basename(local_path)
-    local_copy_path = os.path.join(LOCAL_SAVE_DIR, filename)
-    async with aiofiles.open(local_path, "rb") as src, aiofiles.open(
-        local_copy_path, "wb"
-    ) as dst:
-        await dst.write(await src.read())
-
-    log(f"Путь до файла: {local_path}")
-    max_retries = 3
-
-    for attempt in range(1, max_retries + 1):
-        try:
-            async with ftp_semaphore:
-                async with aioftp.Client.context(
-                    host=FTP_HOST, user=FTP_USERNAME, password=FTP_PASSWORD, port=21
-                ) as client:
-                    try:
-                        await client.change_directory(FTP_REMOTE_DIR)
-                        await client.upload(local_path)
-                        log(f"Загрузили {filename} в {FTP_REMOTE_DIR}")
-                        return f"https://automatonsoft.de/kaufland/{filename}"
-                    except ConnectionResetError as e:
-                        log(
-                            f"⚠️ ConnectionResetError при загрузке {filename} (попытка {attempt}): {e}"
-                        )
-                        if attempt == max_retries:
-                            raise
-                        await asyncio.sleep(2**attempt * random.uniform(0.1, 1))
-                    except Exception as e:
-                        log(f"❌ Ошибка FTP для {filename} (попытка {attempt}): {e}")
-                        if attempt == max_retries:
-                            raise
-                        await asyncio.sleep(2**attempt * random.uniform(0.1, 1))
-        except Exception as e:
-            log(f"❌ Не удалось установить FTP соединение (попытка {attempt}): {e}")
-            if attempt == max_retries:
-                raise
-            await asyncio.sleep(5 * attempt * random.uniform(0.1, 1))
-    raise Exception(f"Не удалось загрузить {filename} после {max_retries} попыток")
-
-
-async def process_pics(pics: list[str]):
-    connector = aiohttp.TCPConnector(
-        limit=5, limit_per_host=2, ttl_dns_cache=300, use_dns_cache=True
-    )
-    timeout = aiohttp.ClientTimeout(total=120, connect=30)
-    async with aiohttp.ClientSession(
-        connector=connector,
-        timeout=timeout,
-        headers={
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        },
-    ) as session:
-        semaphore = asyncio.Semaphore(3)
-
-        async def limited_download(url):
-            async with semaphore:
-                return await download_and_process_image(session, url)
-
-        download_tasks = [limited_download(url) for url in pics]
-        local_paths_results = await asyncio.gather(
-            *download_tasks, return_exceptions=True
-        )
-        local_paths = [
-            path
-            for path in local_paths_results
-            if isinstance(path, str) and path and os.path.exists(path)
-        ]
-        log(f"✅ Скачано успешно: {len(local_paths)}/{len(pics)}")
-        if not local_paths:
-            return []
-        upload_tasks = [upload_to_ftp(path) for path in local_paths]
-        remote_paths_results = await asyncio.gather(
-            *upload_tasks, return_exceptions=True
-        )
-        remote_paths = [
-            path
-            for path in remote_paths_results
-            if isinstance(path, str) and path.startswith("https")
-        ]
-        for path in local_paths:
-            try:
-                if os.path.exists(path):
-                    os.remove(path)
-            except:
-                pass
-        log(f"✅ Загружено на FTP: {len(remote_paths)}")
-        return remote_paths
-
-
-if __name__ == "__main__":
-
-    async def main():
-        test_urls = [
-            "https://jvfurniture.eu/AfterbuyUploadService/DFC/1301315/Couchtisch/Couchtisch_Grau_DFC_1301315_main_226.png",
-            "https://jvfurniture.eu/AfterbuyUploadService/VPH/12/Weinschrank/Weinschrank_Gold_VPH_12_main_97209.jfif",
-            "https://jvfurniture.eu/2025_NEW_JOBS_OKTOBER2025/53_LENATES/0%20NEW/WM18/WM18%20%281%29.jpg",
-        ]
-        result = await process_pics(test_urls)
-        log(result)
-
-    asyncio.run(main())
+                await asyncio.sleep(2**attempt)

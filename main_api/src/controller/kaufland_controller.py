@@ -29,7 +29,8 @@ from aiolimiter import AsyncLimiter
 from main_api.src.logger import log
 from main_api.src.ssh_client import SSHFileClient
 from main_api.src.extracter import adapt_html_description
-from main_api.src.ftp_src.new_ftp_controller import process_pics
+from main_api.src.servises.pic_pipline import process_pics
+from main_api.src.utils.timer import log_time
 from main_api.src.gpt.gpt_helper import generate_description, generate_seo
 
 
@@ -45,6 +46,25 @@ class KauflandController:
         self.retries = 3
         self.backoff = 2
         self.base_api_url = "https://sellerapi.kaufland.com/v2"
+        self._ssh_client = None  # Коннекшн к ншашему серверу
+
+        # Мини кэшируемая система
+        self._ean_cache = {
+            "unit_ids": {},
+            "product_ids": {},
+            "main_data": {},
+        }
+
+    def _get_ssh_client(self):
+        """
+        Lazy SSH client initialization
+        Created once per controller instance
+        """
+        if self._ssh_client == None:
+            self._ssh_client = SSHFileClient(
+                host=SSH_HOST, username=SSH_USER, key_path=SSH_KEY_PATH
+            )
+        return self._ssh_client
 
     # NOTE: НЕ ТРОГАТЬ!!!
     @staticmethod
@@ -226,15 +246,21 @@ class KauflandController:
     async def _fetch_unit_id_by_ean(self, ean):
         """
         Функция которая собирает unit_id
-        о продукте по его EAN со всех стран
+        о продукте по его EAN со всех стран.
+        Так же кешируема для более быстрого поиска
         """
+        if ean in self._ean_cache["unit_ids"]:
+            return self._ean_cache["unit_ids"][ean]
+
         final_res = {}
         for storefront in storefronts:
             url = f"{self.base_api_url}/products/ean/{ean}?storefront={storefront}&embedded=units"
             result = await self._universal_request(method="GET", url=url)
-            id_unit = result.get("data", {}).get("units", [{}])[0].get("id_unit", None)
-            if id_unit:
-                final_res[storefront] = id_unit
+            unit_id = result.get("data", {}).get("units", [{}])[0].get("id_unit", None)
+            if unit_id:
+                final_res[storefront] = unit_id
+
+        self._ean_cache["unit_ids"][ean] = final_res
         return final_res
 
     async def _fetch_product_id_by_ean(self, ean):
@@ -242,6 +268,9 @@ class KauflandController:
         Функция которая собирает product_id
         о продукте по его EAN со всех стран
         """
+        if ean in self._ean_cache["product_ids"]:
+            return self._ean_cache["product_ids"][ean]
+
         final_res = {}
         for storefront in storefronts:
             url = f"{self.base_api_url}/products/ean/{ean}?storefront={storefront}&embedded=units"
@@ -250,6 +279,7 @@ class KauflandController:
             product_id = result.get("data", {}).get("id_product", "")
             if product_id:
                 final_res[storefront] = product_id
+        self._ean_cache["product_ids"][ean] = final_res
         return final_res
 
     async def _add_unit_id(self, ean, price, delivery):
@@ -307,6 +337,10 @@ class KauflandController:
         """
         Функция которая собирает unit_id, title, price
         """
+
+        if ean in self._ean_cache["main_data"]:
+            return self._ean_cache["main_data"][ean]
+
         final_res = []
         for storefront in storefronts:
             url = f"{self.base_api_url}/products/ean/{ean}?storefront={storefront}&embedded=units"
@@ -324,7 +358,23 @@ class KauflandController:
                         "storefront": storefront,
                     }
                 )
+        self._ean_cache["main_data"][ean] = final_res
         return final_res
+
+    async def _send_progress(self, ean: str, stage: str, extra: dict | None = None):
+        channel_layer = get_channel_layer()
+
+        await channel_layer.group_send(
+            "upload_progress",
+            {
+                "type": "upload_progress",
+                "ean": ean,
+                "stage": stage,
+                "controller": self.version,
+                "extra": extra or {},
+                "timestamp": datetime.now().isoformat(),
+            },
+        )
 
     async def _update_price_by_unit_id(self, ean, price):
         """
@@ -547,6 +597,13 @@ class KauflandController:
         category_name = result_category["data"][0]["name"]
         return category_id, category_name
 
+    async def upload_single_product(self, item: dict) -> bool:
+        """
+        Upload exactly 1 product.
+        No batching, no asyncio.gather
+        """
+        return await self._create_product(item)
+
     async def _create_product(self, elem):
         """
         Функция для создания продукта приходит elem: dict
@@ -592,22 +649,30 @@ class KauflandController:
             delivery = 32
 
         ean = elem["ean"]
+        await self._send_progress(ean, "started")
 
-        pics = await process_pics(total)
+        description_task = generate_description(article, size, color, material)
+
+        pics_task = process_pics(total)
+
+        with log_time(f"[{ean}] generate desc + process img total"):
+            description, pics = await asyncio.gather(description_task, pics_task)
+
+        await self._send_progress(ean, "assets ready", {"images": len(pics)})
 
         height = elem["height"]
         length = elem["length"]
         width = elem["width"]
-        description = await generate_description(article, size, color, material)
 
-        ssh_client = SSHFileClient(
-            host=SSH_HOST, username=SSH_USER, key_path=SSH_KEY_PATH
-        )
+        # Получаем SSH клиент
+        with log_time("Connection to ssh"):
+            ssh_client = self._get_ssh_client()
 
         # Получаем HTML-описание из extracter (оригинал из файла), затем добавляем в атрибуты
         try:
             new_webtag = await adapt_html_description(ean, description, ssh_client)
         except Exception as e:
+            await self._send_progress(ean, "failed", {"error": str(e)})
             log(f"Ошибка при адаптации HTML описания для EAN {ean}: {e}", save=True)
             new_webtag = description
         category_id, category_name = await self._category_selector(
@@ -658,16 +723,24 @@ class KauflandController:
             json_body["attributes"]["product_safety_contact"] = XL_CONTACT_DATA
 
         url = f"{self.base_api_url}/product-data?locale=de-DE"
-        result = await self._universal_request("PUT", url, json_body)
+
+        with log_time(f"API request with method PUT on url {url}"):
+            result = await self._universal_request("PUT", url, json_body)
+
         if result.get("data") == "Content created or replaced":
             log(f"Тело продукта создалось с EAN: {ean}", save=True)
-            unit_ids = await self._fetch_unit_id_by_ean(ean)
+
+            with log_time("Unit fetch request"):
+                unit_ids = await self._fetch_unit_id_by_ean(ean)
+
             if unit_ids:
                 log(
                     f"Продукт c таким EAN ({ean}) уже существует, обновляем цену",
                     save=True,
                 )
-                result = await self._update_price_by_unit_id(ean, price)
+
+                with log_time(f"[{ean}] update price"):
+                    result = await self._update_price_by_unit_id(ean, price)
                 log(
                     f"Результат обновления цены продукта с EAN: {ean} результат: {result}",
                     save=True,

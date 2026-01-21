@@ -29,6 +29,10 @@ class ControllerSerializer(serializers.Serializer):
     controller = serializers.ChoiceField(choices=["jv", "xl"])
 
 
+class ModeSerializer(serializers.Serializer):
+    mode = serializers.ChoiceField(choices=["upload_product", "upload_collection"])
+
+
 class JsonFileSerializer(serializers.Serializer):
     file = serializers.FileField()
 
@@ -130,6 +134,7 @@ class CombinedUploadSerializer(serializers.Serializer):
     """
 
     controller = serializers.CharField()
+    mode = serializers.CharField()
     file = serializers.FileField()
 
     def to_internal_value(self, data):
@@ -139,13 +144,17 @@ class CombinedUploadSerializer(serializers.Serializer):
         )
         controller_serializer.is_valid(raise_exception=True)
 
-        # 2️⃣ Валидируем file через JsonFileSerializer
-        print(f"DATA: {data.get("file")}")
+        # 2️⃣ Валидируем mode через ModeSerialiazer
+        mode_serializer = ModeSerializer(data={"mode": data.get("mode", None)})
+        mode_serializer.is_valid(raise_exception=True)
+
+        # 3️⃣ Валидируем file через JsonFileSerializer
         file_serializer = JsonFileSerializer(data={"file": data.get("file")})
         file_serializer.is_valid(raise_exception=True)
 
         return {
             "controller": controller_serializer.validated_data["controller"],
+            "mode": mode_serializer.validated_data["mode"],
             "file": file_serializer.validated_data["file"],
             "json_content": file_serializer.validated_data["json_content"],
         }

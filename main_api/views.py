@@ -11,6 +11,7 @@ from rest_framework.response import Response
 import pandas as pd
 from main_api.serializers import FileUploadSerializer, CombinedUploadSerializer
 from main_api.src.controller.kaufland_controller import KauflandController
+from main_api.src.servises.kaufland_upload_service import KauflandUploadService
 from django.template import loader
 
 
@@ -188,48 +189,39 @@ class UploadCollectionsViaJsonView(APIView):
         serializer = self.serializer_class(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        controller = serializer.validated_data["controller"]
+        controller_name = serializer.validated_data["controller"]
+        mode = serializer.validated_data["mode"]
         json_content = serializer.validated_data["json_content"]
 
+        if isinstance(json_content, dict):
+            json_content = [json_content]
+
         async with aiohttp.ClientSession() as session:
-            kauf_controller = KauflandController(session, controller)
-            json_content = [
-                {
-                    "article": elem.get("Artikelbeschreibung", ""),
-                    "price": elem.get("Startpreis", 0),
-                    "pic_main": elem.get("GalleryURL", elem.get("PictureURL")),
-                    "pics": (
-                        elem.get("pictureurls", "").split(";")
-                        if isinstance(elem.get("pictureurls", ""), str)
-                        else elem.get("pictureurls", [])
-                    ),
-                    "ean": elem.get(
-                        "EAN", elem.get("Herstellernummer", "").replace("JVM", "")
-                    ),
-                    "fabric": elem["Fabric"],
-                    "size": elem.get("Maße", ""),
-                    "color": elem.get("Farbe", ""),
-                    "height": elem.get("Höhe", ""),
-                    "length": elem.get("Länge", ""),
-                    "width": elem.get("Breite", ""),
-                    "material": elem.get("Polsterstoff", elem.get("Gestellmaterial")),
-                }
-                for elem in json_content
-            ]
-            log(f"Начинаем загрузку {len(json_content)} товаров через json", save=True)
-            result = await kauf_controller.upload_via_json(json_content)
-            if result is True:  # Все успешно
-                return Response({"message": "success"}, status=status.HTTP_200_OK)
-            elif result is False:  # Частично успешно
+            controller = KauflandController(session, controller_name)
+            service = KauflandUploadService(controller)
+            if mode == "upload_product":
+                result = await service.upload_single(json_content[0])
+
                 return Response(
-                    {"message": f"not all products were uploaded: {result}"},
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    {"message": "success"} if result else {"message": "failed"},
+                    status=200 if result else 500,
                 )
-            elif result is None:  # Все неуспешно
-                return Response(
-                    {"message": f"no products were uploaded: {result}"},
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                )
+            if mode == "upload_collection":
+                result = await service.upload_collection(json_content)
+
+                if result is True:
+                    return Response({"message": "success"}, status=status.HTTP_200_OK)
+                elif result is False:
+                    return Response(
+                        {"message": "partial success"},
+                        status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    )
+                else:
+                    return Response(
+                        {"message": "all failed"},
+                        status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    )
+        return Response({"error": "invalid mode"}, status=status.HTTP_400_BAD_REQUEST)
 
 
 class ProtectedView(APIView):
