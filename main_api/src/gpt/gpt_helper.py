@@ -9,7 +9,7 @@ client = OpenAI(api_key=GPT_API_KEY)
 
 async def generate_description(article, size, color, material):
     """
-        функция для генерации короткого описания для продукта
+    функция для генерации короткого описания для продукта
     """
 
     prompt = f"""
@@ -34,21 +34,24 @@ async def generate_description(article, size, color, material):
     response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
-            {"role": "system",
-             "content": "Du bist ein professioneller Werbetexter für luxuriöse Möbelmarken. Du verfasst exklusive, "
-                        "verkaufsstarke Produktbeschreibungen auf Deutsch für eine anspruchsvolle Kundschaft im "
-                        "Premiumsegment. Dein Schreibstil ist elegant, selbstbewusst und überzeugt durch Exklusivität. "
-                        "Du verwendest keine Emojis und keine überflüssigen Floskeln. Du betonst die Hochwertigkeit, "
-                        "den luxuriösen Charakter, die handwerkliche Qualität und die Einzigartigkeit jedes Produkts. "
-                        "Antworte ausschließlich mit dem fertigen Beschreibungstext, ohne Überschriften, Einleitungen, "
-                        "Erklärungen oder Zusatztexte."},
-            {"role": "user", "content": prompt}
+            {
+                "role": "system",
+                "content": "Du bist ein professioneller Werbetexter für luxuriöse Möbelmarken. Du verfasst exklusive, "
+                "verkaufsstarke Produktbeschreibungen auf Deutsch für eine anspruchsvolle Kundschaft im "
+                "Premiumsegment. Dein Schreibstil ist elegant, selbstbewusst und überzeugt durch Exklusivität. "
+                "Du verwendest keine Emojis und keine überflüssigen Floskeln. Du betonst die Hochwertigkeit, "
+                "den luxuriösen Charakter, die handwerkliche Qualität und die Einzigartigkeit jedes Produkts. "
+                "Antworte ausschließlich mit dem fertigen Beschreibungstext, ohne Überschriften, Einleitungen, "
+                "Erklärungen oder Zusatztexte.",
+            },
+            {"role": "user", "content": prompt},
         ],
-        temperature=0.7
+        temperature=0.7,
     )
 
     description = response.choices[0].message.content.strip()
     return description
+
 
 async def generate_seo(article, size=None, color=None, material=None):
     """
@@ -78,13 +81,15 @@ async def generate_seo(article, size=None, color=None, material=None):
     response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
-            {"role": "system",
-             "content": "Du bist ein professioneller SEO-Texter für luxuriöse Möbel. "
-                        "Du erstellst exklusive, prägnante und hochwertige SEO-Schlüsselwörter auf Deutsch. "
-                        "Du verwendest keine Emojis, keine Satzzeichen und keine Erklärungen."},
-            {"role": "user", "content": prompt}
+            {
+                "role": "system",
+                "content": "Du bist ein professioneller SEO-Texter für luxuriöse Möbel. "
+                "Du erstellst exklusive, prägnante und hochwertige SEO-Schlüsselwörter auf Deutsch. "
+                "Du verwendest keine Emojis, keine Satzzeichen und keine Erklärungen.",
+            },
+            {"role": "user", "content": prompt},
         ],
-        temperature=0.6
+        temperature=0.6,
     )
 
     seo_text = response.choices[0].message.content.strip()
@@ -92,6 +97,7 @@ async def generate_seo(article, size=None, color=None, material=None):
     # Попытка безопасно распарсить JSON-список
     try:
         import json
+
         seo_keywords = json.loads(seo_text)
         if isinstance(seo_keywords, list) and len(seo_keywords) == 7:
             return seo_keywords
@@ -103,14 +109,14 @@ async def generate_seo(article, size=None, color=None, material=None):
         return []
 
 
+if __name__ == "__main__":
 
-if __name__ == '__main__':
     async def main():
         seo_list = await generate_seo(
             article="Luxuriöser Schminktisch",
             size="120x80 cm",
             color="Weiß",
-            material="Massivholz"
+            material="Massivholz",
         )
         print(seo_list)
         # ➡ ["Schminktisch", "Luxus", "Weiß", "Massivholz", "Design", "Modern", "Elegant"]

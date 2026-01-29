@@ -469,7 +469,7 @@ class KauflandController:
         )
         return True
 
-    async def _delete_product_by_unit_id(self, ean):
+    async def _delete_product_by_unit_id(self, ean: str) -> bool:
         """
         Функция которая удаляет товары по их
         unit_id
@@ -513,9 +513,9 @@ class KauflandController:
                 await channel_layer.group_send(
                     "delete_group",
                     {
-                        "type": "delete_message",
+                        "type": "delete_progress",
                         "message": (
-                            {"info": "Удален"} if result else {"info": "Не удален"}
+                            {"info": "success"} if result else {"info": "fail"}
                         ),
                         "controller": self.version,
                         "ean": ean,
@@ -523,7 +523,7 @@ class KauflandController:
                     },
                 )
 
-            return True if all(bool_list) else False
+            return all(bool_list)
 
         log(f"Нет Final res ean: {ean}", save=True)
 
@@ -542,6 +542,26 @@ class KauflandController:
         with open(logs_file_path, "a", encoding="utf-8") as file:
             file.write(f"\nНе существует такого EAN: {ean}\n")
         return True
+
+    async def realtime_check(self, ean: str) -> dict:
+        """
+        Fast EAN existance check (no heavy parsing)
+        """
+        if ean in self._ean_cache["units_id"]:
+            return {
+                "ean": ean,
+                "exists": bool(self._ean_cache["units_id"][ean]),
+                "source": "cache",
+            }
+        for storefront in storefronts:
+            url = f"{self.base_api_url}/products/ean/{ean}?storefront={storefront}"
+            res = await self._universal_request("GET", url)
+            if res.get("data"):
+                self._ean_cache["unit_id"][ean] = {storefront: True}
+                return {"ean": ean, "exists": True, "storefront": storefront}
+
+        self._ean_cache["unit_id"][ean] = {}
+        return {"ean": ean, "exists": False}
 
     async def _check_product_by_unit_id(self, ean):
         """

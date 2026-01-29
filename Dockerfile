@@ -14,8 +14,7 @@ COPY . .
 RUN pip install uv && \
     uv pip install --system -r requirements.txt
 
-# Создаём тома для статических и медиа-файлов
+# Создаём папку для статики
 RUN mkdir -p /app/static
 
-# Указываем порт (для документации)
 EXPOSE 8000

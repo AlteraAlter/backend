@@ -8,9 +8,6 @@ services:
     volumes:
       - .:/app
       - /home/altera/.ssh:/root/.ssh:ro
-      - ./main_api/templates:/app/main_api/templates
-      - media_volume:/app/media
-      - static_files:/app/static
     env_file:
       - .env.docker
     depends_on:
@@ -22,7 +19,6 @@ services:
       - kaufland_network
     command: >
       sh -c "python manage.py migrate &&
-            python manage.py collectstatic --noinput &&
             uvicorn kaufland_API.asgi:application --host 0.0.0.0 --port 8000 --reload"
 
   postgres:

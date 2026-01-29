@@ -12,7 +12,6 @@ import pandas as pd
 from main_api.serializers import FileUploadSerializer, CombinedUploadSerializer
 from main_api.src.controller.kaufland_controller import KauflandController
 from main_api.src.servises.kaufland_upload_service import KauflandUploadService
-from django.template import loader
 
 
 # Create your views here.

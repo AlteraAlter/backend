@@ -1,144 +1,190 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
+
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Kaufland Controller</title>
-    <link rel="stylesheet" href="main.css">
-    <!-- FilePond CSS -->
-    <link href="https://unpkg.com/filepond@^4/dist/filepond.css" rel="stylesheet">
-    <link href="https://unpkg.com/filepond-plugin-image-preview/dist/filepond-plugin-image-preview.css" rel="stylesheet">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Kauflands Controller</title>
+  <link rel="stylesheet" href="css/main.css" />
+  <link rel="icon" href="src/img/main.ico" type="image/x-icon" />
+  <!-- FilePond CSS -->
+  <link href="https://unpkg.com/filepond@^4/dist/filepond.css" rel="stylesheet" />
+  <link href="https://unpkg.com/filepond-plugin-image-preview/dist/filepond-plugin-image-preview.css"
+    rel="stylesheet" />
+  <!-- <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet"
+      integrity="sha384-sRIl4kxILFvY47J16cr9ZwB07vP4J8+LH7qKQnuqkuIAvNWLzeN8tE5YBujZqJLB" crossorigin="anonymous">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"
+      integrity="sha384-FKyoEForCGlyvwx9Hj09JcYn3nv7wiPVlz7YYwJrWVcXK/BmnVDxM+D2scQbITxI"
+      crossorigin="anonymous"></script> -->
 </head>
+
 <body>
-    <!-- Floating Navbar -->
-    <nav class="navbar">
-        <div class="nav-container">
-            <a href="#home" class="logo">KAUFLAND</a>
-            <div class="nav-center">
-                <ul class="nav-links" id="navLinks">
-                    <li><a href="#home" class="active">Home</a></li>
-                    <li><a href="#about">Delete</a></li>
-                    <li><a href="#services">Check</a></li>
-                    <li><a href="#portfolio">Change Price</a></li>
-                    <li><a href="#contact">Upload</a></li>
-                    <li class="mobile-auth-buttons">
-                        <a href="#" class="auth-btn login-btn">Login</a>
-                    </li>
-                </ul>
-            </div>
-            <div class="auth-buttons">
-                <a href="#" class="auth-btn login-btn">Login</a>
-            </div>
-            <button class="menu-toggle" id="menuToggle">☰</button>
-        </div>
-    </nav>
+  <!-- Floating Navbar -->
+  <nav class="navbar">
+    <div class="nav-container">
+      <a href="#home" class="logo">KAUFLAND</a>
+      <div class="nav-center">
+        <ul class="nav-links" id="navLinks">
+          <li><a href="#home" class="active">Home</a></li>
+          <li><a href="#about">Delete</a></li>
+          <li><a href="#portfolio">Change Price</a></li>
+          <li><a href="#contact">Upload</a></li>
+        </ul>
+      </div>
+      <div class="auth-buttons">
 
-    <!-- Home Section -->
-    <section id="home" class="section">
-        <div>
-            <h1>HOME</h1>
-            <p class="section-info">Welcome to kaufland controller designed by holosolo, here you can create, change, delete or view your products in Kaufland</p>
-        </div>
-    </section>
+      </div>
+      <button class="menu-toggle" id="menuToggle">☰</button>
+    </div>
+  </nav>
 
-    <!-- About Section (Delete) -->
-    <section id="about" class="section">
-        <div>
-            <h1>DELETE</h1>
-            <p class="section-info">Delete products from kaufland using .xlsx file, first_column with name "ean" and eans under label</p>
-            <div class="controller-form">
-                <label for="controller-select" class="controller-label">Controller</label>
-                <select id="controller-select" class="controller-select">
-                    <option value="xl">XL</option>
-                    <option value="jv">JV</option>
-                </select>
-                <label for="mode-select" class="controller-label">Mode</label>
-                <select id="mode-select" class="controller-select">
-                    <option value="delete">Delete</option>
-                </select>
-                <label for="filepond-delete" class="controller-label">Upload Files</label>
-                <input type="file" class="filepond-delete" name="filepond-delete" multiple data-max-file-size="30MB" data-max-files="1">
-                <button id="upload-button-delete" class="upload-button">Upload</button>
-                <p class="upload-message" id="upload-message-delete"></p>
-            </div>
-        </div>
-    </section>
+  <!-- Modal for auth buttons -->
 
-    <!-- Services Section -->
-    <section id="services" class="section">
-        <div>
-            <h1>CHECK</h1>
-            <p class="section-info">Checking data in real-time via web-socket</p>
-            <button><a url="">CHECK DELETING</a></button>
-            <button><a url="">CHECK EXISTING</a></button>
-            <button><a url="">CHECK UPLOADING</a></button>
-        </div>
-    </section>
 
-    <!-- Portfolio Section -->
-    <section id="portfolio" class="section">
-        <div>
-            <h1>CHANGE PRICE</h1>
-            <p class="section-info">Changing price from .xlsx first label "ean" under label must be eans in 1 column, second label "price" under label
-                must be prices in EURO
-            </p>
-            <div class="controller-form">
-                <label for="controller-select" class="controller-label">Controller</label>
-                <select id="controller-select" class="controller-select">
-                    <option value="xl">XL</option>
-                    <option value="jv">JV</option>
-                </select>
-                <label for="mode-select" class="controller-label">Mode</label>
-                <select id="mode-select" class="controller-select">
-                    <option value="change_price">Change Price</option>
-                </select>
-                <label for="filepond-change-price" class="controller-label">Upload Files</label>
-                <input type="file" class="filepond-change-price" name="filepond-change-price" multiple data-max-file-size="30MB" data-max-files="1">
-                <button id="upload-button-change-price" class="upload-button">Upload</button>
-                <p class="upload-message" id="upload-message-change-price"></p>
-            </div>
-        </div>
-    </section>
+  <!-- Home Section -->
+  <section id="home" class="section">
+    <div>
+      <h1>HOME</h1>
+      <p class="section-info">
+        Welcome to kaufland controller designed by holosolo, here you can
+        create, change, delete or view your products in Kaufland
+      </p>
+    </div>
+  </section>
 
-    <!-- Contact Section -->
-    <section id="contact" class="section">
-        <div>
-            <h1>UPLOAD</h1>
-            <p class="section-info">Uploading products from kaufland using .json file for each collection</p>
-            <div class="controller-form">
-                <label for="controller-select" class="controller-label">Controller</label>
-                <select id="controller-select" class="controller-select">
-                    <option value="xl">XL</option>
-                    <option value="jv">JV</option>
-                </select>
-                <label for="mode-select" class="controller-label">Mode</label>
-                <select id="mode-select" class="controller-select">
-                    <option value="upload_collection">Upload collection</option>
-                    <option value="upload_product">Upload product</option>
-                </select>
-                <label for="filepond-upload" class="controller-label">Upload Files</label>
-                <input type="file" class="filepond-upload" name="filepond-upload" multiple data-max-file-size="30MB" data-max-files="3">
-                <button id="upload-button-upload" class="upload-button">Upload</button>
-                <p class="upload-message" id="upload-message-upload"></p>
-            </div>
-        </div>
-    </section>
+  <!-- About Section (Delete) -->
+  <section id="about" class="section">
+    <div>
+      <h1>DELETE (CHECKER)</h1>
+      <p class="section-info">
+        Delete products from kaufland using .xlsx file, first_column with name
+        "ean" and eans under label
+      </p>
+      <div class="controller-form">
+        <form id="delete-form" enctype="multipart/form-data">
+          <label for="controller-select-delete" class="controller-label">Controller</label>
+          <select id="controller-select-delete" name="controller" class="controller-select">
+            <option value="xl">XL</option>
+            <option value="jv">JV</option>
+          </select>
+          <label for="mode-select-delete" class="controller-label">Mode</label>
+          <select id="mode-select-delete" name="mode" class="controller-select">
+            <option value="delete">Delete</option>
+            <option value="checker">Checker</option>
+          </select>
+          <label for="filepond-delete" class="controller-label">Upload Files</label>
+          <input type="file" class="filepond-delete" name="filepond-delete" data-max-file-size="30MB"
+            data-max-files="1" />
+          <button type="button" id="upload-button-delete" class="upload-button">
+            Upload
+          </button>
+          <p class="upload-message" id="upload-message-delete"></p>
+        </form>
+      </div>
+      <div id="delete-progress">
+        <h3>Delete progress</h3>
 
-    <!-- Footer -->
-    <footer class="footer">
-        <div class="footer-container">
-            <div class="footer-bottom">
-                <p>&copy; 2025 XL MOEBEL. All rights reserved.</p>
-            </div>
+        <div id="delete-summary">
+          <span id="delete-total">Total: 0</span>
+          <span id="delete-success">✅ 0</span>
+          <span id="delete-fail">❌ 0</span>
         </div>
-    </footer>
 
-    <!-- FilePond JS and Plugins -->
-    <script src="https://unpkg.com/filepond-plugin-file-encode/dist/filepond-plugin-file-encode.js"></script>
-    <script src="https://unpkg.com/filepond-plugin-file-validate-size/dist/filepond-plugin-file-validate-size.js"></script>
-    <script src="https://unpkg.com/filepond-plugin-image-exif-orientation/dist/filepond-plugin-image-exif-orientation.js"></script>
-    <script src="https://unpkg.com/filepond-plugin-image-preview/dist/filepond-plugin-image-preview.js"></script>
-    <script src="https://unpkg.com/filepond@^4/dist/filepond.js"></script>
-    <script src="main.js"></script>
+        <table id="delete-table">
+          <thead>
+            <tr>
+              <th>EAN</th>
+              <th>Storefront</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- Portfolio Section -->
+  <section id="portfolio" class="section">
+    <div>
+      <h1>CHANGE PRICE</h1>
+      <p class="section-info">
+        Changing price from .xlsx first label "ean" under label must be eans
+        in 1 column, second label "price" under label must be prices in EURO
+      </p>
+      <div class="controller-form">
+        <form id="change-price-form" enctype="multipart/form-data">
+          <label for="controller-select-price" class="controller-label">Controller</label>
+          <select id="controller-select-price" name="controller" class="controller-select">
+            <option value="xl">XL</option>
+            <option value="jv">JV</option>
+          </select>
+          <label for="mode-select-price" class="controller-label">Mode</label>
+          <select id="mode-select-price" name="mode" class="controller-select">
+            <option value="change_price">Change Price</option>
+          </select>
+          <label for="filepond-change-price" class="controller-label">Upload Files</label>
+          <input type="file" class="filepond-change-price" name="filepond-change-price" data-max-file-size="30MB"
+            data-max-files="1" />
+          <button type="button" id="upload-button-change-price" class="upload-button">
+            Upload
+          </button>
+          <p class="upload-message" id="upload-message-change-price"></p>
+        </form>
+      </div>
+    </div>
+  </section>
+
+  <!-- Contact Section -->
+  <section id="contact" class="section">
+    <div>
+      <h1>UPLOAD</h1>
+      <p class="section-info">
+        Uploading products from kaufland using .json file
+      </p>
+      <div class="controller-form">
+        <form id="upload-form" enctype="multipart/form-data">
+          <label for="controller-select-upload" class="controller-label">Controller</label>
+          <select id="controller-select-upload" name="controller" class="controller-select">
+            <option value="xl">XL</option>
+            <option value="jv">JV</option>
+          </select>
+          <label for="mode-select-upload" class="controller-label">Mode</label>
+          <select id="mode-select-upload" name="mode" class="controller-select">
+            <option value="upload_collection">Upload collection</option>
+            <option value="upload_product">Upload product</option>
+          </select>
+          <label for="filepond-upload" class="controller-label">Upload File</label>
+          <input type="file" class="filepond-upload" name="filepond-upload" data-max-file-size="30MB"
+            data-max-files="1" />
+          <button type="button" id="upload-button-upload" class="upload-button">
+            Upload
+          </button>
+          <p class="upload-message" id="upload-message-upload"></p>
+          <div id="upload-progress" style="margin-top: 20px"></div>
+        </form>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="footer-container">
+      <div class="footer-bottom">
+        <p>&copy; 2025 XL MOEBEL. All rights reserved.</p>
+      </div>
+    </div>
+  </footer>
+
+  <!-- FilePond JS and Plugins -->
+  <script src="https://unpkg.com/filepond-plugin-file-encode/dist/filepond-plugin-file-encode.js"></script>
+  <script
+    src="https://unpkg.com/filepond-plugin-file-validate-size/dist/filepond-plugin-file-validate-size.js"></script>
+  <script
+    src="https://unpkg.com/filepond-plugin-image-exif-orientation/dist/filepond-plugin-image-exif-orientation.js"></script>
+  <script src="https://unpkg.com/filepond-plugin-image-preview/dist/filepond-plugin-image-preview.js"></script>
+  <script src="https://unpkg.com/filepond@^4/dist/filepond.js"></script>
+  <script type="module" src="js/main.js"></script>
 </body>
+
 </html>

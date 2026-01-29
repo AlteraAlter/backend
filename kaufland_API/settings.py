@@ -9,7 +9,7 @@ https://docs.djangoproject.com/en/5.2/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
-
+from corsheaders.defaults import default_headers
 from datetime import timedelta
 from pathlib import Path
 from config import (
@@ -20,6 +20,7 @@ from config import (
     DB_PORT,
     MAIN_HOST,
 )
+import os
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -35,6 +36,7 @@ SECRET_KEY = "django-insecure-er2a%p#jkp3i$2t-*a!q-i!bkai)mw1se@-=uqxl+cz#%%w(jp
 DEBUG = True
 
 ALLOWED_HOSTS = [
+    "http://127.0.0.1:5500",
     "localhost",
     "127.0.0.1",
     "django",
@@ -66,6 +68,12 @@ CSRF_TRUSTED_ORIGINS = [
     "http://217.11.76.91:8050",
 ]
 
+CORS_ALLOWED_ORIGINS = [
+    "http://127.0.0.1:5500",
+]
+CORS_ALLOW_HEADERS = list(default_headers) + [
+    "authorization"
+]
 
 # Application definition
 
@@ -76,6 +84,7 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "corsheaders",  
     "adrf",
     "rest_framework",
     "main_api",
@@ -87,6 +96,7 @@ MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
+    "corsheaders.middleware.CorsMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
@@ -200,7 +210,10 @@ CACHE_TTL = 60 * 60 * 24  # сутки
 # Использование ВебСокета для общения в реальном времени
 CHANNEL_LAYERS = {
     "default": {
-        "BACKEND": "channels.layers.InMemoryChannelLayer",
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "Config": {
+            "host": [os.environ.get('REDIS_URL', ('127.0.0.1', 6379))],
+        },
     },
 }
 
