@@ -1,5 +1,5 @@
-from rest_framework_simplejwt.views import TokenObtainSlidingView
-from .serializers import CustomTokenObtainSlidingSerializer
+from rest_framework_simplejwt.views import TokenObtainPairView
+from .serializers import CustomTokenObtainPairSerializer
 
-class CustomTokenObtainSlidingView(TokenObtainSlidingView):
-    serializer_class = CustomTokenObtainSlidingSerializer
+class CustomTokenObtainSlidingView(TokenObtainPairView):
+    serializer_class = CustomTokenObtainPairSerializer

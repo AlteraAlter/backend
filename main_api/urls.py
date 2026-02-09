@@ -3,7 +3,6 @@ from rest_framework_simplejwt.views import TokenRefreshView
 
 from main_api.views import (
     MainOperationsView,
-    index,
     UploadCollectionsViaJsonView,
     ProtectedView,
 )
@@ -16,9 +15,6 @@ urlpatterns = [
         UploadCollectionsViaJsonView.as_view(),
         name="upload_collections",
     ),
-    path("", index, name="index"),
-    path("delete_real/", index, name="delete_real"),  # Новый маршрут для шаблона
-    path("change_price/", index, name="change_price"),
     path("protected/", ProtectedView.as_view(), name="protected"),
     path("token/", CustomTokenObtainSlidingView.as_view(), name="token_obtain_pair"),
     path("token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),

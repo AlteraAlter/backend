@@ -7,6 +7,7 @@ const BACKEND_URL = "http://127.0.0.1:8050";
 // TOKEN STORAGE
 // =====================
 export function setTokens({ access, refresh }) {
+  console.log(`access: ${access}\nrefresh: ${refresh}`);
   localStorage.setItem(ACCESS_KEY, access);
   if (refresh) localStorage.setItem(REFRESH_KEY, refresh);
 }
@@ -35,12 +36,11 @@ export async function login(username, password) {
   });
 
   const data = await resp.json();
+  console.log(data);
 
   if (!resp.ok) {
     throw new Error(data.detail || "Login failed");
   }
-
-  
 
   setTokens(data);
   updateLoginUI();

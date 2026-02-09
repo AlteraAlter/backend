@@ -20,10 +20,10 @@ from django.conf import settings
 from django.conf.urls.static import static
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
-from main_api.views import main_view  # Импортируем main_view из main_api
+# from main_api.views import main_view  # Импортируем main_view из main_api
 
 urlpatterns = [
-    path('', main_view, name='main'),  # Главная страница по корневому пути /
+    # path('', main_view, name='main'),  # Главная страница по корневому пути /
     path('admin/', admin.site.urls),
     path("api/", include("main_api.urls")),
 ]

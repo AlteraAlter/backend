@@ -123,6 +123,7 @@ class JsonFileSerializer(serializers.Serializer):
             parsed = None
 
         validated["json_content"] = parsed
+
         return validated
 
 
@@ -151,9 +152,14 @@ class CombinedUploadSerializer(serializers.Serializer):
         file_serializer = JsonFileSerializer(data={"file": data.get("file")})
         file_serializer.is_valid(raise_exception=True)
 
+        job_id = data.get("job_id")
+        if job_id == "":
+            job_id = None
+
         return {
             "controller": controller_serializer.validated_data["controller"],
             "mode": mode_serializer.validated_data["mode"],
             "file": file_serializer.validated_data["file"],
             "json_content": file_serializer.validated_data["json_content"],
+            "job_id": job_id,
         }

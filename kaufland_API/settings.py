@@ -9,6 +9,7 @@ https://docs.djangoproject.com/en/5.2/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
+
 from corsheaders.defaults import default_headers
 from datetime import timedelta
 from pathlib import Path
@@ -36,18 +37,15 @@ SECRET_KEY = "django-insecure-er2a%p#jkp3i$2t-*a!q-i!bkai)mw1se@-=uqxl+cz#%%w(jp
 DEBUG = True
 
 ALLOWED_HOSTS = [
-    "http://127.0.0.1:5500",
-    "localhost",
-    "127.0.0.1",
-    "django",
-    "192.168.0.193",
-    "192.168.0.111",
-    "kauf.automatonsoft.de",
-    "192.168.0.100",
-    "192.168.0.134",
-    "94.126.201.244",
-    "217.11.76.91",
+    # "localhost",
+    # "127.0.0.1",
+    # "django",
+    # "192.168.0.142",
+    # "192.168.0.193",
+    # "192.168.0.111",
+    "*"
 ]
+
 
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost:8050",
@@ -66,14 +64,19 @@ CSRF_TRUSTED_ORIGINS = [
     "http://94.126.201.244:8050",
     "http://217.11.76.91:8000",
     "http://217.11.76.91:8050",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
 ]
 
 CORS_ALLOWED_ORIGINS = [
+    "http://localhost:5500",
     "http://127.0.0.1:5500",
+    "http://192.168.0.144:5500",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
 ]
-CORS_ALLOW_HEADERS = list(default_headers) + [
-    "authorization"
-]
+
+CORS_ALLOW_HEADERS = list(default_headers) + ["authorization"]
 
 # Application definition
 
@@ -84,7 +87,7 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
-    "corsheaders",  
+    "corsheaders",
     "adrf",
     "rest_framework",
     "main_api",
@@ -93,10 +96,10 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
-    "corsheaders.middleware.CorsMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
@@ -211,8 +214,8 @@ CACHE_TTL = 60 * 60 * 24  # сутки
 CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
-        "Config": {
-            "host": [os.environ.get('REDIS_URL', ('127.0.0.1', 6379))],
+        "CONFIG": {
+            "hosts": [("redis", 6379)],
         },
     },
 }

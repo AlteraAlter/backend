@@ -3,6 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      target: backend
     container_name: kaufland_django
     restart: unless-stopped
     volumes:
@@ -27,6 +28,8 @@ services:
     container_name: kaufland_postgres
     env_file:
       - .env.docker
+    ports:
+    - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:

@@ -1,7 +1,7 @@
 import io
 import json
-from django.shortcuts import render
 import aiohttp
+from uuid import uuid4
 from adrf.views import APIView
 from django.http import HttpResponse
 from main_api.src.logger import log
@@ -12,7 +12,6 @@ import pandas as pd
 from main_api.serializers import FileUploadSerializer, CombinedUploadSerializer
 from main_api.src.controller.kaufland_controller import KauflandController
 from main_api.src.servises.kaufland_upload_service import KauflandUploadService
-
 
 # Create your views here.
 
@@ -50,12 +49,12 @@ class MainOperationsView(APIView):
             try:
                 async with aiohttp.ClientSession() as session:
                     kaufland_controller = KauflandController(session, controller)
-
+                    print(df.columns)
                     if set(df.columns) == {"ean"}:
                         # Только колонка ean -> список
                         df = df.astype({"ean": str})
                         eans_list = list(set(df["ean"].tolist()))
-
+                        print(eans_list)
                         if mode == "delete":
                             log(
                                 f"Сработало условие удаления для {len(eans_list)} товаров",
@@ -185,39 +184,60 @@ class UploadCollectionsViaJsonView(APIView):
         )
 
     async def post(self, request):
+
         serializer = self.serializer_class(data=request.data)
+
         serializer.is_valid(raise_exception=True)
 
         controller_name = serializer.validated_data["controller"]
         mode = serializer.validated_data["mode"]
-        json_content = serializer.validated_data["json_content"]
+        json_content = serializer.validated_data.get("json_content")
+        job_id = serializer.validated_data.get("job_id")
+        if json_content is None:
+            return Response(
+                {"error": "invalid json content"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         if isinstance(json_content, dict):
             json_content = [json_content]
 
         async with aiohttp.ClientSession() as session:
-            controller = KauflandController(session, controller_name)
+            controller: KauflandController = KauflandController(
+                session, controller_name
+            )
             service = KauflandUploadService(controller)
             if mode == "upload_product":
-                result = await service.upload_single(json_content[0])
+                if not job_id:
+                    job_id = uuid4().hex
+                result = await service.upload_single(json_content[0], job_id=job_id)
 
                 return Response(
-                    {"message": "success"} if result else {"message": "failed"},
+                    (
+                        {"message": "success", "job_id": job_id}
+                        if result
+                        else {"message": "failed", "job_id": job_id}
+                    ),
                     status=200 if result else 500,
                 )
             if mode == "upload_collection":
-                result = await service.upload_collection(json_content)
+                if not job_id:
+                    job_id = uuid4().hex
+                result = await service.upload_collection(json_content, job_id=job_id)
 
                 if result is True:
-                    return Response({"message": "success"}, status=status.HTTP_200_OK)
+                    return Response(
+                        {"message": "success", "job_id": job_id},
+                        status=status.HTTP_200_OK,
+                    )
                 elif result is False:
                     return Response(
-                        {"message": "partial success"},
+                        {"message": "partial success", "job_id": job_id},
                         status=status.HTTP_500_INTERNAL_SERVER_ERROR,
                     )
                 else:
                     return Response(
-                        {"message": "all failed"},
+                        {"message": "all failed", "job_id": job_id},
                         status=status.HTTP_500_INTERNAL_SERVER_ERROR,
                     )
         return Response({"error": "invalid mode"}, status=status.HTTP_400_BAD_REQUEST)
@@ -228,15 +248,3 @@ class ProtectedView(APIView):
 
     async def get(self, request):
         return Response({"message": "ok"}, status=status.HTTP_200_OK)
-
-
-def main_view(request):
-    return render(request, "main.html")
-
-
-def index(request):
-    if request.path == "/api/delete_real/":
-        return render(request, "delete_real.html")
-    elif request.path == "/api/change_price/":
-        return render(request, "price_update.html")
-    return render(request, "index.html")
