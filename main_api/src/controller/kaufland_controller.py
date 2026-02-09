@@ -388,6 +388,10 @@ class KauflandController:
             return
         channel_layer = get_channel_layer()
 
+        log(
+            f"WS SEND job_id={job_id} event={event} payload={payload} info={info}",
+            save=True,
+        )
         await channel_layer.group_send(
             f"{job_id}_upload",
             {

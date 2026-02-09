@@ -60,6 +60,10 @@ CSRF_TRUSTED_ORIGINS = [
     "http://192.168.0.111:8000",
     "http://192.168.0.134:8050",
     "http://192.168.0.134:8000",
+    "http://192.168.0.129:8050",
+    "http://192.168.0.129:8000",
+    "http://192.168.0.129:5173",
+    "http://192.168.0.129:5500",
     "http://94.126.201.244:8000",
     "http://94.126.201.244:8050",
     "http://217.11.76.91:8000",
@@ -74,7 +78,13 @@ CORS_ALLOWED_ORIGINS = [
     "http://192.168.0.144:5500",
     "http://localhost:5173",
     "http://127.0.0.1:5173",
+    "http://192.168.0.129:5173",
+    "http://192.168.0.129:5500",
+    "http://192.168.0.129:8050",
 ]
+
+# Dev-only: allow all origins if CORS errors persist
+# CORS_ALLOW_ALL_ORIGINS = True
 
 CORS_ALLOW_HEADERS = list(default_headers) + ["authorization"]
 

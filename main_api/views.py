@@ -184,15 +184,14 @@ class UploadCollectionsViaJsonView(APIView):
         )
 
     async def post(self, request):
-
         serializer = self.serializer_class(data=request.data)
-
         serializer.is_valid(raise_exception=True)
 
         controller_name = serializer.validated_data["controller"]
         mode = serializer.validated_data["mode"]
         json_content = serializer.validated_data.get("json_content")
         job_id = serializer.validated_data.get("job_id")
+        print(f"JOB ID: {job_id}")
         if json_content is None:
             return Response(
                 {"error": "invalid json content"},

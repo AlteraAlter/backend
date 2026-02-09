@@ -1,6 +1,7 @@
 from channels.generic.websocket import AsyncWebsocketConsumer
 from urllib.parse import parse_qs
 import json
+from main_api.src.logger import log
 
 
 class UploadProgressConsumer(AsyncWebsocketConsumer):
@@ -15,30 +16,38 @@ class UploadProgressConsumer(AsyncWebsocketConsumer):
 
         await self.channel_layer.group_add(self.group_name, self.channel_name)
         await self.accept()
+        log(f"WS CONNECT upload-progress job_id={self.job_id} channel={self.channel_name}")
 
     async def disconnect(self, close_code):
         await self.channel_layer.group_discard(self.group_name, self.channel_name)
+        log(f"WS DISCONNECT upload-progress job_id={self.job_id} channel={self.channel_name} code={close_code}")
 
     async def ws_message(self, event):
+        log(f"WS MESSAGE upload-progress job_id={event.get('job_id')} event={event.get('event')}")
         await self.send(
-            text_data=json.dumps({
-                "job_id": event["job_id"],
-                "event": event["event"],
-                "payload": event["payload"],
-                "info": event["info"],
-                "timestamp": event["timestamp"],
-            })
+            text_data=json.dumps(
+                {
+                    "job_id": event["job_id"],
+                    "event": event["event"],
+                    "payload": event["payload"],
+                    "info": event["info"],
+                    "timestamp": event["timestamp"],
+                }
+            )
         )
+
 
 class DeleteProgressConsumer(AsyncWebsocketConsumer):
     async def connect(self):
-        print("DELETE PROGRESS CONNECTED")
         await self.channel_layer.group_add("delete_group", self.channel_name)
         await self.accept()
+        log(f"WS CONNECT delete-progress channel={self.channel_name}")
 
     async def disconnect(self, code):
         await self.channel_layer.group_discard("delete_group", self.channel_name)
+        log(f"WS DISCONNECT delete-progress channel={self.channel_name} code={code}")
 
     async def delete_progress(self, event):
         """ """
+        log(f"WS MESSAGE delete-progress event={event}")
         await self.send(text_data=json.dumps(event))
