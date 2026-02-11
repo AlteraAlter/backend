@@ -1,10 +1,7 @@
-import io
-import json
 import aiohttp
 from uuid import uuid4
+import asyncio
 from adrf.views import APIView
-from django.http import HttpResponse
-from main_api.src.logger import log
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -13,14 +10,43 @@ from main_api.serializers import FileUploadSerializer, CombinedUploadSerializer
 from main_api.src.controller.kaufland_controller import KauflandController
 from main_api.src.servises.kaufland_upload_service import KauflandUploadService
 
-# Create your views here.
+
+async def _run_checker_job(controller_name: str, eans: list[str], job_id: str) -> None:
+    async with aiohttp.ClientSession() as session:
+        controller = KauflandController(session, controller_name)
+        try:
+            await controller.products_checker(eans, job_id=job_id)
+        except Exception as e:
+            await controller._send_task_progress(
+                job_id,
+                "checker",
+                "job_completed",
+                payload={"total": len(eans), "processed": 0, "result_count": 0},
+                info=f"failed: {str(e)}",
+            )
+
+
+async def _run_delete_job(controller_name: str, eans: list[str], job_id: str) -> None:
+    async with aiohttp.ClientSession() as session:
+        controller = KauflandController(session, controller_name)
+        try:
+            await controller.delete_all_products(eans, job_id=job_id)
+        except Exception as e:
+            await controller._send_task_progress(
+                job_id,
+                "delete",
+                "job_completed",
+                payload={
+                    "total": len(eans),
+                    "processed": 0,
+                    "success": 0,
+                    "failed": len(eans),
+                },
+                info=f"failed: {str(e)}",
+            )
 
 
 class MainOperationsView(APIView):
-    """
-    Класс который делает основные операции удаляет или изменяет цены
-    """
-
     permission_classes = [IsAuthenticated]
     serializer_class = FileUploadSerializer
 
@@ -29,152 +55,128 @@ class MainOperationsView(APIView):
 
     async def post(self, request):
         serializer = FileUploadSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-        if serializer.is_valid():
-            file = serializer.validated_data["file"]
-            mode = serializer.data["mode"]
-            controller = serializer.data["controller"]
-            # Проверяем расширение
-            filename = file.name.lower()
-            if filename.endswith(".csv"):
-                df = pd.read_csv(file)
-            elif filename.endswith(".xlsx"):
-                df = pd.read_excel(file)
-            else:
+        file = serializer.validated_data.get("file")
+        ean = serializer.validated_data.get("ean")
+        job_id = serializer.validated_data.get("job_id")
+        mode = serializer.validated_data["mode"]
+        controller = serializer.validated_data["controller"]
+
+        if mode == "checker" and not file:
+            single_ean = str(ean).strip() if ean is not None else ""
+            if not single_ean:
                 return Response(
-                    {"error": "Неподдерживаемый формат файла"},
+                    {"error": "ean is required for checker"},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
+            if not job_id:
+                job_id = uuid4().hex
+            asyncio.create_task(_run_checker_job(controller, [single_ean], job_id))
+            return Response(
+                {
+                    "message": "checker job started",
+                    "job_id": job_id,
+                    "eans": [single_ean],
+                },
+                status=status.HTTP_202_ACCEPTED,
+            )
 
-            try:
-                async with aiohttp.ClientSession() as session:
-                    kaufland_controller = KauflandController(session, controller)
-                    print(df.columns)
-                    if set(df.columns) == {"ean"}:
-                        # Только колонка ean -> список
-                        df = df.astype({"ean": str})
-                        eans_list = list(set(df["ean"].tolist()))
-                        print(eans_list)
-                        if mode == "delete":
-                            log(
-                                f"Сработало условие удаления для {len(eans_list)} товаров",
-                                save=True,
-                            )
-                            result = await kaufland_controller.delete_all_products(
-                                eans_list
-                            )
-                            if result:
-                                return Response(
-                                    {
-                                        "message": f"Все продукты с ean: "
-                                        f"{json.dumps(eans_list, indent=2)} были удалены"
-                                    },
-                                    status=status.HTTP_200_OK,
-                                )
-                            else:
-                                return Response(
-                                    {
-                                        "message": f"Где-то была ошибка и продукты не удалились"
-                                    },
-                                    status=status.HTTP_400_BAD_REQUEST,
-                                )
-                        elif mode == "checker":
-                            log(
-                                f"Сработало условие чекера для {len(eans_list)} товаров",
-                                save=True,
-                            )
-                            result = await kaufland_controller.products_checker(
-                                eans_list
-                            )
+        filename = file.name.lower()
+        if filename.endswith(".csv"):
+            df = pd.read_csv(file)
+        elif filename.endswith(".xlsx"):
+            df = pd.read_excel(file)
+        else:
+            return Response(
+                {"error": "unsupported file format"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-                            # Преобразуем список словарей в DataFrame
-                            df = pd.DataFrame(result)
-                            buffer = io.BytesIO()
-                            with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
-                                df.to_excel(writer, index=False, sheet_name="Products")
+        try:
+            async with aiohttp.ClientSession() as session:
+                kaufland_controller = KauflandController(session, controller)
 
-                            buffer.seek(0)
+                if set(df.columns) == {"ean"}:
+                    df = df.astype({"ean": str})
+                    eans_list = list(set(df["ean"].tolist()))
 
-                            response = HttpResponse(
-                                buffer,
-                                content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            )
-                            response["Content-Disposition"] = (
-                                'attachment; filename="result.xlsx"'
-                            )
-                            return response
-
+                    if mode == "delete":
+                        if not job_id:
+                            job_id = uuid4().hex
+                        asyncio.create_task(
+                            _run_delete_job(controller, eans_list, job_id)
+                        )
                         return Response(
                             {
-                                "info": "Ты не можешь использовать изменение цен передав только EAN"
+                                "message": "delete job started",
+                                "job_id": job_id,
                             },
-                            status=status.HTTP_400_BAD_REQUEST,
+                            status=status.HTTP_202_ACCEPTED,
                         )
-                    elif set(df.columns) >= {"ean", "price"}:
-                        # Есть ean + price -> словарь
-                        log("Сработало условие")
-                        df = df.astype({"ean": str, "price": float})
-                        eans_prices = dict(zip(df["ean"], df["price"]))
-                        if mode == "delete":
-                            log(
-                                f"Запущено удаление для {len(eans_prices)} товаров",
-                                save=True,
-                            )
-                            result = await kaufland_controller.delete_all_products(
-                                list(eans_prices.keys())
-                            )
-                            if result:
-                                return Response(
-                                    {
-                                        "message": f"Все продукты с ean: "
-                                        f"{json.dumps(eans_prices, indent=2)} были удалены"
-                                    },
-                                    status=status.HTTP_200_OK,
-                                )
-                            else:
-                                return Response(
-                                    {
-                                        "message": f"Где-то была ошибка и продукты не удалились"
-                                    },
-                                    status=status.HTTP_200_OK,
-                                )
-                        elif mode == "change_price":
-                            log(
-                                f"Запущено изменение цен для {len(eans_prices)} товаров",
-                                save=True,
-                            )
-                            result = await kaufland_controller.update_price(eans_prices)
-                            if result:
-                                return Response(
-                                    "Все прошло успешны цены измененены",
-                                    status=status.HTTP_200_OK,
-                                )
-                            return Response(
-                                "Где-то что-то сломалось",
-                                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            )
-                        else:
-                            "Вызываем функцию изменения цен"
-                    else:
+
+                    if mode == "checker":
+                        if not job_id:
+                            job_id = uuid4().hex
+                        asyncio.create_task(
+                            _run_checker_job(controller, eans_list, job_id)
+                        )
                         return Response(
                             {
-                                "error": "Файл должен содержать колонку 'ean' (и опционально 'price')"
+                                "message": "checker job started",
+                                "job_id": job_id,
+                                "eans": eans_list,
                             },
-                            status=status.HTTP_400_BAD_REQUEST,
+                            status=status.HTTP_202_ACCEPTED,
                         )
-            except Exception as e:
+
+                    return Response(
+                        {"info": "mode is not allowed for ean-only file"},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+                if set(df.columns) >= {"ean", "price"}:
+                    df = df.astype({"ean": str, "price": float})
+                    eans_prices = dict(zip(df["ean"], df["price"]))
+
+                    if mode == "delete":
+                        if not job_id:
+                            job_id = uuid4().hex
+                        asyncio.create_task(
+                            _run_delete_job(
+                                controller, list(eans_prices.keys()), job_id
+                            )
+                        )
+                        return Response(
+                            {
+                                "message": "delete job started",
+                                "job_id": job_id,
+                            },
+                            status=status.HTTP_202_ACCEPTED,
+                        )
+
+                    if mode == "change_price":
+                        result = await kaufland_controller.update_price(eans_prices)
+                        if result:
+                            return Response("all prices updated", status=status.HTTP_200_OK)
+                        return Response(
+                            "something went wrong",
+                            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        )
+
                 return Response(
-                    {"error": f"Ошибка обработки файла: {str(e)}"},
+                    {"error": "file must include column 'ean' (and optional 'price')"},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response(
+                {"error": f"file processing error: {str(e)}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
 
 class UploadCollectionsViaJsonView(APIView):
-    """
-    Класс для загрузки товаров на Kaufland через JSON
-    """
-
     permission_classes = [IsAuthenticated]
     serializer_class = CombinedUploadSerializer
 
@@ -191,7 +193,7 @@ class UploadCollectionsViaJsonView(APIView):
         mode = serializer.validated_data["mode"]
         json_content = serializer.validated_data.get("json_content")
         job_id = serializer.validated_data.get("job_id")
-        print(f"JOB ID: {job_id}")
+
         if json_content is None:
             return Response(
                 {"error": "invalid json content"},

@@ -6,7 +6,9 @@ from rest_framework import serializers
 
 class FileUploadSerializer(serializers.Serializer):
     controller = serializers.ChoiceField(choices=["jv", "xl"])
-    file = serializers.FileField()
+    file = serializers.FileField(required=False, allow_null=True)
+    ean = serializers.CharField(required=False, allow_blank=False, trim_whitespace=True)
+    job_id = serializers.CharField(required=False, allow_blank=True, trim_whitespace=True)
     mode = serializers.ChoiceField(
         choices=["delete", "change_price", "checker", "invalid_items"]
     )
@@ -15,6 +17,8 @@ class FileUploadSerializer(serializers.Serializer):
         """
         Проверка расширения файла
         """
+        if value is None:
+            return value
         valid_extensions = [".xlsx", ".csv"]
         ext = os.path.splitext(value.name)[1].lower()
         if ext not in valid_extensions:
@@ -22,6 +26,25 @@ class FileUploadSerializer(serializers.Serializer):
                 f"Неподдерживаемый формат файла. Разрешены только: {', '.join(valid_extensions)}"
             )
         return value
+
+    def validate(self, attrs):
+        mode = attrs.get("mode")
+        file = attrs.get("file")
+        ean = attrs.get("ean")
+
+        if mode == "checker":
+            if not file and not ean:
+                raise serializers.ValidationError(
+                    {"non_field_errors": "Provide file or ean for checker mode"}
+                )
+            return attrs
+
+        if not file:
+            raise serializers.ValidationError(
+                {"file": "File is required for this mode"}
+            )
+        return attrs
+
 
 
 class ControllerSerializer(serializers.Serializer):

@@ -404,6 +404,31 @@ class KauflandController:
             },
         )
 
+    async def _send_task_progress(
+        self,
+        job_id: str | None,
+        task: str,
+        event: str,
+        payload: dict | None = None,
+        info: str | None = None,
+    ):
+        if not job_id:
+            return
+        channel_layer = get_channel_layer()
+        group_name = f"{job_id}_{task}"
+
+        await channel_layer.group_send(
+            group_name,
+            {
+                "type": "ws_message",
+                "job_id": job_id,
+                "event": event,
+                "payload": payload or {},
+                "info": info,
+                "timestamp": datetime.now().isoformat(),
+            },
+        )
+
     @staticmethod
     def _normalize_value(value):
         if isinstance(value, list):
@@ -570,7 +595,7 @@ class KauflandController:
         )
         return True
 
-    async def _delete_product_by_unit_id(self, ean: str) -> bool:
+    async def _delete_product_by_unit_id(self, ean: str, job_id: str | None = None) -> bool:
         """
         Функция которая удаляет товары по их
         unit_id
@@ -623,6 +648,17 @@ class KauflandController:
                         "storefront": storefront,
                     },
                 )
+                await self._send_task_progress(
+                    job_id,
+                    "delete",
+                    "storefront_result",
+                    payload={
+                        "controller": self.version,
+                        "ean": ean,
+                        "storefront": storefront,
+                        "result": "success" if result else "fail",
+                    },
+                )
 
             return all(bool_list)
 
@@ -636,6 +672,17 @@ class KauflandController:
                 "controller": self.version,
                 "ean": ean,
                 "storefront": "Все базы",
+            },
+        )
+        await self._send_task_progress(
+            job_id,
+            "delete",
+            "storefront_result",
+            payload={
+                "controller": self.version,
+                "ean": ean,
+                "storefront": "all",
+                "result": "no_unit_ids",
             },
         )
 
@@ -664,7 +711,7 @@ class KauflandController:
         self._ean_cache["unit_id"][ean] = {}
         return {"ean": ean, "exists": False}
 
-    async def _check_product_by_unit_id(self, ean):
+    async def _check_product_by_unit_id(self, ean, job_id: str | None = None):
         """
         Выводит чек 1 продукта по unit_id
         """
@@ -685,9 +732,22 @@ class KauflandController:
         )
         if final_res:
             log(f"Пришел Res: {final_res}")
+            await self._send_task_progress(
+                job_id,
+                "checker",
+                "item",
+                payload={"controller": self.version, "ean": ean, "items": final_res},
+            )
             return final_res
         log(f"Пришел Res: {final_res}")
-        return {"ean": ean, "title": None, "price": None, "storefront": None}
+        await self._send_task_progress(
+            job_id,
+            "checker",
+            "item",
+            payload={"controller": self.version, "ean": ean, "items": []},
+            info="not found",
+        )
+        return [{"ean": ean, "title": None, "price": None, "storefront": None}]
 
     async def _category_selector(self, article, price, ean, description):
         """
@@ -1040,7 +1100,7 @@ class KauflandController:
             )
             return False
 
-    async def delete_all_products(self, eans):
+    async def delete_all_products(self, eans, job_id: str | None = None):
         """
         Удаление товаров по их EAN со всех сайтов в kaufland
         """
@@ -1054,12 +1114,59 @@ class KauflandController:
         else:
             log(f"Файл {logs_file_path} не существует")
 
-        tasks = [
-            self._delete_product_by_unit_id(str(int(float(ean))))
-            for ean in eans
-            if ean and ean != "nan"
-        ]
-        status_result = await self.status_processing(tasks)
+        clean_eans = [ean for ean in eans if ean and ean != "nan"]
+        total = len(clean_eans)
+        if job_id:
+            await self._send_task_progress(
+                job_id,
+                "delete",
+                "job_started",
+                payload={"total": total, "controller": self.version},
+            )
+
+        if not clean_eans:
+            return True
+
+        processed = 0
+        result_list = []
+        step = 10
+        for elem in range(0, len(clean_eans), step):
+            batch_eans = clean_eans[elem : elem + step]
+            tasks = [
+                self._delete_product_by_unit_id(str(int(float(ean))), job_id=job_id)
+                for ean in batch_eans
+            ]
+            batch_result = await asyncio.gather(*tasks)
+            for ean, ok in zip(batch_eans, batch_result):
+                processed += 1
+                result_list.append(ok)
+                if job_id:
+                    await self._send_task_progress(
+                        job_id,
+                        "delete",
+                        "job_progress",
+                        payload={
+                            "total": total,
+                            "processed": processed,
+                            "ean": str(int(float(ean))),
+                            "status": "success" if ok else "failed",
+                        },
+                    )
+
+        status_result = all(result_list)
+        if job_id:
+            await self._send_task_progress(
+                job_id,
+                "delete",
+                "job_completed",
+                payload={
+                    "total": total,
+                    "processed": processed,
+                    "success": sum(1 for x in result_list if x),
+                    "failed": sum(1 for x in result_list if not x),
+                },
+                info="success" if status_result else "partial_or_failed",
+            )
         return status_result
 
     async def update_price(self, eans_and_prices):
@@ -1085,21 +1192,71 @@ class KauflandController:
         status_result = await self.status_processing(tasks)
         return status_result
 
-    async def products_checker(self, eans):
+    async def products_checker(self, eans, job_id: str | None = None):
         """
         Чекер продуктов выводит их ean, title, price
         """
         final_result = []
-        tasks = [
-            self._check_product_by_unit_id(str(int(float(ean))))
-            for ean in eans
-            if ean and ean != "nan"
-        ]
-        for elem in range(0, len(tasks), 10):
-            new_tasks = tasks[elem : elem + 10]
-            result = await asyncio.gather(*new_tasks)
-            for elem in result:
-                final_result.extend(elem)
+        clean_eans = [ean for ean in eans if ean and ean != "nan"]
+        total = len(clean_eans)
+        if job_id:
+            await self._send_task_progress(
+                job_id,
+                "checker",
+                "job_started",
+                payload={"total": total, "controller": self.version},
+            )
+
+        if not clean_eans:
+            if job_id:
+                await self._send_task_progress(
+                    job_id,
+                    "checker",
+                    "job_completed",
+                    payload={
+                        "total": total,
+                        "processed": 0,
+                        "result_count": 0,
+                        "result": [],
+                    },
+                )
+            return final_result
+
+        processed = 0
+        for elem in range(0, len(clean_eans), 10):
+            batch_eans = clean_eans[elem : elem + 10]
+            tasks = [
+                self._check_product_by_unit_id(str(int(float(ean))), job_id=job_id)
+                for ean in batch_eans
+            ]
+            result = await asyncio.gather(*tasks)
+            for ean, item in zip(batch_eans, result):
+                final_result.extend(item)
+                processed += 1
+                if job_id:
+                    await self._send_task_progress(
+                        job_id,
+                        "checker",
+                        "job_progress",
+                        payload={
+                            "total": total,
+                            "processed": processed,
+                            "ean": str(int(float(ean))),
+                        },
+                    )
+
+        if job_id:
+            await self._send_task_progress(
+                job_id,
+                "checker",
+                "job_completed",
+                payload={
+                    "total": total,
+                    "processed": processed,
+                    "result_count": len(final_result),
+                    "result": final_result,
+                },
+            )
         return final_result
 
     async def upload_via_json(self, data: list[dict], job_id: str | None = None) -> bool | None:
