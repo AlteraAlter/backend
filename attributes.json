@@ -1,0 +1,98 @@
+{
+    "data": {
+        "id_category": 45071,
+        "name": "klassische-sessel",
+        "title_singular": "Classic armchair",
+        "title_plural": "Classic armchairs",
+        "level": 5,
+        "url": "https://www.kaufland.de/klassische-sessel/",
+        "is_leaf": true,
+        "id_parent_category": 3791,
+        "fixed_fee": 0,
+        "shipping_category": "D",
+        "variable_fee": 13,
+        "vat": 19,
+        "required_attributes": [
+            {
+                "id": 1,
+                "name": "ean",
+                "title": "EAN",
+                "explanation": "EAN(s) — European Article Number",
+                "is_multiple": true,
+                "seller_instructions": "Please enter a valid GTIN/EAN (Global Trade Item Number). This serves as the basis for your product data and the corresponding offers. items without a GTIN or EAN cannot be created in the system.",
+                "is_sharedset": false,
+                "type": "Ean"
+            },
+            {
+                "id": 21,
+                "name": "manufacturer",
+                "title": "Manufacturer",
+                "explanation": "Manufacturer",
+                "is_multiple": false,
+                "seller_instructions": "",
+                "is_sharedset": true,
+                "type": "Company"
+            },
+            {
+                "id": 31,
+                "name": "title",
+                "title": "Title",
+                "explanation": "Product title",
+                "is_multiple": false,
+                "seller_instructions": "Include the most important information about the product in the title. Use a minimum of 20 and a maximum of 150 characters. Avoid keyword spam and unusual special characters. Avoid promotional language and remain factual. \nRecommended example: Sharp \"R-982STWE\" combi microwave with infrared grill",
+                "is_sharedset": false,
+                "type": "ShortText"
+            },
+            {
+                "id": 41,
+                "name": "description",
+                "title": "Description",
+                "explanation": "Product description",
+                "is_multiple": true,
+                "seller_instructions": "Provide a neutral product description, in which you talk up the benefits of the product in order to explain its functions and properties, for example, to the customer.\n \n Not permitted are:\n - Information about prices, price recommendations, discounts,\n - Information about the shipping method,\n - Information about delivery times,\n - Details of warranty periods,\n - References to certificates or test seals,\n - Links, images, videos,\n - Contact details of your online shop,\n - Item condition.\nFurther information can be found in our product data guideline.",
+                "is_sharedset": false,
+                "type": "Text"
+            },
+            {
+                "id": 61,
+                "name": "picture",
+                "title": "Image",
+                "explanation": "Product image",
+                "is_multiple": true,
+                "seller_instructions": "Provide a neutral product image, in which the item is isolated in front of a white background. Additional close-up product images are recommended.\n\nMinimum size: 500px on the longest side\nRecommended size: 1024px on the longest side\nFor convenient use of the search function on the product detail page, we recommend image sizes of at least 2048px on the longest side.\n\nNot permitted are:\n- Text, logos, graphics, or watermarks that are superimposed on the product images,\n- Accessories that are not included must not be depicted,\n- Placeholder images,\n- Bordered images.\n\nAccepted file formats:\n- jpg, gif, svg, png, pdf",
+                "is_sharedset": false,
+                "type": "Picture"
+            },
+            {
+                "id": 1741,
+                "name": "material_composition",
+                "title": "Material composition",
+                "explanation": "Material identification – mandatory field for all products containing 80% by weight of textile components",
+                "is_multiple": false,
+                "seller_instructions": "The EU Textile Regulation governs the designation of textile fibres and their labelling and fibre composition. All products containing at least 80% textile fibres by weight must be labelled accordingly.\r\nFor example, the following must be clearly labelled:\r\nClothing, blankets, furniture covers, umbrellas and parasols, floor coverings, mattress covers, covers on camping items, etc. in the following form:\r\n80% cotton, 20% polyester\r\nMaterial composition is a mandatory field. If the item does not require information concerning its material composition for legal reasons, “No information required” can be entered.",
+                "is_sharedset": false,
+                "type": "TinyText"
+            },
+            {
+                "id": 3071,
+                "name": "category",
+                "title": "Category",
+                "explanation": "Category",
+                "is_multiple": false,
+                "seller_instructions": "Select a leaf category to assign your products: Products can only be assigned to the last level of a product world (leaf category).\nExample:\nElectronics & computers > Home electronics > TV, audio & video > TVs & accessories > TVs\nIn this example, the category \"TVs\" is the leaf category within the \"Electronics & computers\" section.",
+                "is_sharedset": false,
+                "type": "Category"
+            },
+            {
+                "id": 3819,
+                "name": "product_safety_contact",
+                "title": "Manufacturer / EU Responsible Person",
+                "explanation": "From 13 December 2024, the General Product Safety Regulation (GPSR) will come into force, replacing the General Product Safety Directive. This regulation is intended to ensure the safety of products placed on the European market. \r\nIn order to comply with the requirements regarding product safety information, the manufacturer's name (if based in the EU) / or EU Responsible Person, address, e-mail and telephone (optional) must be provided for each product offered.",
+                "is_multiple": true,
+                "seller_instructions": "Provide the manufacturer's name (if based in the EU) / name of the EU Responsible Person, registered (business) address, e-mail or contact page URL (including scheme, e.g.: https://), and telephone number (optional).\r\n\r\nThe addresses must contain (separated by a comma):\r\n- Street name and number\r\n- City / Town\r\n- Postal code\r\n- Country code (e.g. “DE” for Germany)",
+                "is_sharedset": false,
+                "type": "ComplianceContact"
+            }
+        ]
+    }
+}

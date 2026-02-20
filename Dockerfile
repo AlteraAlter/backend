@@ -8,25 +8,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-COPY . .
+# 1️⃣ copy only dependency files first
+COPY requirements.txt .
 
-# Устанавливаем uv и зависимости
+# 2️⃣ install deps (cached unless requirements change)
 RUN pip install uv && \
     uv pip install --system -r requirements.txt
 
-# Создаём папку для статики
+# 3️⃣ now copy project code
+COPY . .
+
 RUN mkdir -p /app/static
 
 EXPOSE 8000
-
-FROM node:20-alpine AS frontend
-
-WORKDIR /app/frontend-app
-
-COPY frontend-app/package.json ./
-RUN npm install
-
-COPY frontend-app ./
-
-EXPOSE 5173
-CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "5173"]

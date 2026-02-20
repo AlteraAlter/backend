@@ -43,7 +43,7 @@ class RateLimiter:
         if len(host_requests) >= self.max_requests:
             wait_time = 30 - (now - host_requests[0])
             if wait_time > 0:
-                log(f"⏳ Rate limit для {host}, ждем {wait_time:.1f}с")
+                log(f"Rate limit for {host}, wait {wait_time:.1f}s")
                 await asyncio.sleep(wait_time)
         host_requests.append(now)
 
@@ -230,7 +230,7 @@ async def download_and_process_image(
                 return path
 
             except Exception as e:
-                log(f"[IMG] {url} error ({attempt}/{MAX_RETRIES}): {e}")
+                log(f"[IMG] {url} error ({attempt}/{MAX_RETRIES}): {e}", save=True)
                 if attempt == MAX_RETRIES:
                     return None
                 await asyncio.sleep((2**attempt) + random.uniform(0.5, 2))
@@ -316,7 +316,7 @@ async def download_and_process_image(
                 return path
 
             except Exception as e:
-                log(f"[IMG] {url} ошибка ({attempt}/{MAX_RETRIES}): {e}")
+                log(f"[IMG] {url} error ({attempt}/{MAX_RETRIES}): {e}", save=True)
                 if attempt == MAX_RETRIES:
                     return None
                 await asyncio.sleep(2**attempt)

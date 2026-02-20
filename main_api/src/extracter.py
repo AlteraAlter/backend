@@ -11,6 +11,7 @@ import os
 from bs4 import BeautifulSoup
 from main_api.src.logger import log
 from .ssh_client import SSHFileClient
+from config import REMOTE_BASE_DIR
 
 
 def get_description(ean: str) -> str:
@@ -128,7 +129,7 @@ def add_extra_fields_webtag(description: str, webtag: str) -> str:
 
 
 async def adapt_html_description(
-    ean: str, description: str, ssh_client: SSHFileClient
+    ean: str, description: str, ssh_client: SSHFileClient, controller: str | None = None
 ) -> str:
     """
     Основная функция для подготовки финального HTML-описания товара.
@@ -150,7 +151,9 @@ async def adapt_html_description(
         attributes["description"] = [new_webtag]
     """
     # Извлекаем оригинальный HTML контент товара
-    webtag = get_description_from_remote_server(ean=ean, ssh_client=ssh_client)
+    webtag = get_description_from_remote_server(
+        ean=ean, ssh_client=ssh_client, controller=controller
+    )
 
     # Добавляем служебные блоки (описание)
     new_webtag = add_extra_fields_webtag(description=description, webtag=webtag)
@@ -158,15 +161,14 @@ async def adapt_html_description(
     return new_webtag
 
 
-REMOTE_BASE_DIR = "/home/user/ProductBaseAPI/DATA/JV/JV_PRODUCT/JV_NEW/HTML/"
-
-
-def get_description_from_remote_server(ean: str, ssh_client: SSHFileClient):
+def get_description_from_remote_server(
+    ean: str, ssh_client: SSHFileClient, controller: str | None = None
+):
     """
     Извлекаем HTML-контент товара с удалённого сервера по SSH.
     """
 
-    remote_path = f"{REMOTE_BASE_DIR}{ean}.html"
+    remote_path = f"{REMOTE_BASE_DIR[controller]}{ean}.html"
     html_content = ssh_client.read_file(remote_path)
 
     if not html_content:
@@ -210,5 +212,5 @@ def get_description_from_remote_server(ean: str, ssh_client: SSHFileClient):
           {head_str}
           {str(content_soup)}
     """.strip()
-
+    log(f"Generated description successfully [{ean}]")
     return final_html

@@ -15,5 +15,8 @@ def map_json_item(elem: dict) -> dict:
         "height": elem.get("Höhe", ""),
         "length": elem.get("Länge", ""),
         "width": elem.get("Breite", ""),
-        "material": elem.get("Polsterstoff", elem.get("Gestellmaterial")),
+        "material": elem.get(
+            "Material", elem.get("Polsterstoff", elem.get("Gestellmaterial", elem.get("Füllmaterial", None)))
+        ),
+        "number_of_units": elem.get("Anzahl der Teile", ""),
     }

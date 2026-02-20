@@ -1,6 +1,7 @@
 import asyncio
 import aiohttp
 import aiofiles
+import uuid
 import os
 import io
 import time
@@ -18,8 +19,16 @@ TIMEOUT = 60
 
 ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "webp", "gif", "svg"}
 
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return max(1, int(os.getenv(name, str(default))))
+    except ValueError:
+        return default
+
+
 # shared semaphore for HTTP downloads
-http_semaphore = asyncio.Semaphore(7)
+http_semaphore = asyncio.Semaphore(_env_int("PIC_HTTP_CONCURRENCY", 10))
 
 
 def clean_filename(filename: str) -> str:
@@ -139,16 +148,18 @@ async def download_and_process_image(
                     ext,
                 )
 
-                filename = f"{int(time.time())}_{clean_name}"
+                filename = f"{uuid.uuid4().hex}_{clean_name}"
                 path = os.path.join(output_dir, filename)
 
                 async with aiofiles.open(path, "wb") as f:
                     await f.write(processed_bytes)
 
+                log("<======Images downloaded successfully======>")
+
                 return path
 
             except Exception as e:
-                log(f"[IMG] {url} error ({attempt}/{MAX_RETRIES}): {e}")
+                log(f"[IMG] {url} error ({attempt}/{MAX_RETRIES}): {e}", save=True)
                 if attempt == MAX_RETRIES:
                     return None
                 await asyncio.sleep((2**attempt) + random.uniform(0.5, 2))

@@ -37,8 +37,6 @@ class SSHFileClient:
             sftp = client.open_sftp()
             with sftp.open(remote_path, "r") as f:
                 content = f.read().decode("utf-8")
-            if content:
-              log("Успешно запарсено и считано с сервера", save=True)
             return content
 
         except FileNotFoundError:

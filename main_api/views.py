@@ -9,6 +9,8 @@ import pandas as pd
 from main_api.serializers import FileUploadSerializer, CombinedUploadSerializer
 from main_api.src.controller.kaufland_controller import KauflandController
 from main_api.src.servises.kaufland_upload_service import KauflandUploadService
+from main_api.src.logger import log
+from main_api.src.job_registry import cancel_job
 
 
 async def _run_checker_job(controller_name: str, eans: list[str], job_id: str) -> None:
@@ -17,12 +19,9 @@ async def _run_checker_job(controller_name: str, eans: list[str], job_id: str) -
         try:
             await controller.products_checker(eans, job_id=job_id)
         except Exception as e:
-            await controller._send_task_progress(
-                job_id,
-                "checker",
-                "job_completed",
-                payload={"total": len(eans), "processed": 0, "result_count": 0},
-                info=f"failed: {str(e)}",
+            log(
+                f"checker job failed job_id={job_id} controller={controller_name} eans={eans} error={e}",
+                save=True,
             )
 
 
@@ -63,6 +62,7 @@ class MainOperationsView(APIView):
         job_id = serializer.validated_data.get("job_id")
         mode = serializer.validated_data["mode"]
         controller = serializer.validated_data["controller"]
+        log(f"Contoller: {controller}")
 
         if mode == "checker" and not file:
             single_ean = str(ean).strip() if ean is not None else ""
@@ -73,15 +73,35 @@ class MainOperationsView(APIView):
                 )
             if not job_id:
                 job_id = uuid4().hex
-            asyncio.create_task(_run_checker_job(controller, [single_ean], job_id))
-            return Response(
-                {
-                    "message": "checker job started",
-                    "job_id": job_id,
-                    "eans": [single_ean],
-                },
-                status=status.HTTP_202_ACCEPTED,
-            )
+            try:
+                async with aiohttp.ClientSession() as session:
+                    kaufland_controller = KauflandController(session, controller)
+                    checker_results = await kaufland_controller.products_checker(
+                        [single_ean], job_id=job_id
+                    )
+
+                return Response(
+                    {
+                        "message": "checker completed",
+                        "job_id": job_id,
+                        "eans": [single_ean],
+                        "results": checker_results,
+                    },
+                    status=status.HTTP_200_OK,
+                )
+            except Exception as e:
+                log(
+                    f"single checker failed job_id={job_id} ean={single_ean} error={e}",
+                    save=True,
+                )
+                return Response(
+                    {
+                        "error": f"single checker failed: {str(e)}",
+                        "job_id": job_id,
+                        "ean": single_ean,
+                    },
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
 
         filename = file.name.lower()
         if filename.endswith(".csv"):
@@ -119,16 +139,20 @@ class MainOperationsView(APIView):
                     if mode == "checker":
                         if not job_id:
                             job_id = uuid4().hex
-                        asyncio.create_task(
-                            _run_checker_job(controller, eans_list, job_id)
+                        checker_results = await kaufland_controller.products_checker(
+                            eans_list, job_id=job_id
                         )
                         return Response(
                             {
-                                "message": "checker job started",
+                                "message": "checker completed",
                                 "job_id": job_id,
                                 "eans": eans_list,
+                                "results": checker_results,
+                                "last_result": (
+                                    checker_results[-1] if checker_results else None
+                                ),
                             },
-                            status=status.HTTP_202_ACCEPTED,
+                            status=status.HTTP_200_OK,
                         )
 
                     return Response(
@@ -159,7 +183,9 @@ class MainOperationsView(APIView):
                     if mode == "change_price":
                         result = await kaufland_controller.update_price(eans_prices)
                         if result:
-                            return Response("all prices updated", status=status.HTTP_200_OK)
+                            return Response(
+                                "all prices updated", status=status.HTTP_200_OK
+                            )
                         return Response(
                             "something went wrong",
                             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -170,8 +196,15 @@ class MainOperationsView(APIView):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
         except Exception as e:
+            log(
+                f"file processing failed controller={controller} mode={mode} input_ean={ean} error={e}",
+                save=True,
+            )
             return Response(
-                {"error": f"file processing error: {str(e)}"},
+                {
+                    "error": f"file processing error: {str(e)}",
+                    "input_ean": str(ean).strip() if ean is not None else None,
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -186,6 +219,7 @@ class UploadCollectionsViaJsonView(APIView):
         )
 
     async def post(self, request):
+        log("<------Post method initialized----->")
         serializer = self.serializer_class(data=request.data)
         serializer.is_valid(raise_exception=True)
 
@@ -222,6 +256,7 @@ class UploadCollectionsViaJsonView(APIView):
                     status=200 if result else 500,
                 )
             if mode == "upload_collection":
+                log("Massive upload")
                 if not job_id:
                     job_id = uuid4().hex
                 result = await service.upload_collection(json_content, job_id=job_id)
@@ -249,3 +284,22 @@ class ProtectedView(APIView):
 
     async def get(self, request):
         return Response({"message": "ok"}, status=status.HTTP_200_OK)
+
+
+class StopJobView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    async def post(self, request):
+        job_id = str(request.data.get("job_id") or "").strip()
+        if not job_id:
+            return Response(
+                {"error": "job_id is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        stopped = await cancel_job(job_id)
+        if not stopped:
+            return Response(
+                {"error": "unable to stop job"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response({"message": "stop requested", "job_id": job_id}, status=200)

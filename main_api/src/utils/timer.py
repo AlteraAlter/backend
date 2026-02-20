@@ -15,4 +15,4 @@ def log_time(label: str, *, save: bool = False):
         yield
     finally:
         duration = time.perf_counter() - start
-        log(f"⏱ {label} took {duration:.3f}s", save=save)
+        log(f"TIMING {label} took {duration:.3f}s", save=save)

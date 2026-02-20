@@ -24,7 +24,6 @@
         const ws = new WebSocket('ws://{{ WS_URL }}/ws/price-updates/');
 
         ws.onopen = function() {
-            console.log('WebSocket подключен');
         };
 
         ws.onmessage = function(event) {
@@ -44,7 +43,6 @@
         };
 
         ws.onclose = function() {
-            console.log('WebSocket отключен');
         };
     </script>
 </body>

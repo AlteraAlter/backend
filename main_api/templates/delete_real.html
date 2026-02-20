@@ -37,7 +37,6 @@
         let failedItemsHistory = [];
 
         deleteSocket.onopen = function() {
-            console.log('Delete WebSocket connected');
         };
 
         deleteSocket.onmessage = function(event) {
@@ -77,7 +76,6 @@
         };
 
         deleteSocket.onclose = function(event) {
-            console.log('Delete WebSocket closed:', event);
         };
     </script>
 </body>

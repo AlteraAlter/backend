@@ -9,6 +9,7 @@ services:
     volumes:
       - .:/app
       - /home/altera/.ssh:/root/.ssh:ro
+      - /srv/kaufland:/srv/kaufland
     env_file:
       - .env.docker
     depends_on:
