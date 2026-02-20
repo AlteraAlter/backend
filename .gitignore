@@ -175,3 +175,10 @@ cython_debug/
 
 # OTHER
 
+# Local runtime/dev artifacts
+myenv/
+staticfiles/
+media/logs/
+main_api/src/ftp_src/media/
+logs.csv
+
