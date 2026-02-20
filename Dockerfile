@@ -1,5 +1,6 @@
 FROM python:3.13 AS backend
 
+# System libs required by Pillow/image processing.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libjpeg-dev \
     zlib1g-dev \
@@ -8,16 +9,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# 1️⃣ copy only dependency files first
+# Copy dependency file first for better layer caching.
 COPY requirements.txt .
 
-# 2️⃣ install deps (cached unless requirements change)
+# Install dependencies (uv is used as fast installer frontend).
 RUN pip install uv && \
     uv pip install --system -r requirements.txt
 
-# 3️⃣ now copy project code
+# Copy application source after deps.
 COPY . .
 
+# Static directory expected by Django/Whitenoise setup.
 RUN mkdir -p /app/static
 
 EXPOSE 8000
