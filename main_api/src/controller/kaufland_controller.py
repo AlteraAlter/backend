@@ -29,7 +29,12 @@ from config import (
 import ssl
 from aiolimiter import AsyncLimiter
 from main_api.src.logger import log
-from main_api.src.job_registry import is_cancelled, clear_cancel
+from main_api.src.job_registry import (
+    is_cancelled,
+    clear_cancel,
+    register_running_job,
+    unregister_running_job,
+)
 from main_api.src.ssh_client import SSHFileClient
 from main_api.src.extracter import adapt_html_description
 from main_api.src.servises.pic_pipline import process_pics
@@ -1177,47 +1182,69 @@ class KauflandController:
         result_list = []
         failed_eans = []
         step = 10
-        for elem in range(0, len(clean_eans), step):
-            if await is_cancelled(job_id):
-                if job_id:
-                    await self._send_task_progress(
-                        job_id,
-                        "delete",
-                        "job_failed",
-                        payload={
-                            "total": total,
-                            "processed": processed,
-                            "success": sum(1 for x in result_list if x),
-                            "error": sum(1 for x in result_list if not x),
-                            "failed_eans": failed_eans,
-                        },
-                        info="stopped",
-                    )
-                return False
-            batch_eans = clean_eans[elem : elem + step]
-            tasks = [
-                self._delete_product_by_unit_id(str(int(float(ean))), job_id=job_id)
-                for ean in batch_eans
-            ]
-            batch_result = await asyncio.gather(*tasks)
-            for ean, ok in zip(batch_eans, batch_result):
-                processed += 1
-                result_list.append(ok)
-                normalized_ean = str(int(float(ean)))
-                if not ok:
-                    failed_eans.append(normalized_ean)
-                if job_id:
-                    await self._send_task_progress(
-                        job_id,
-                        "delete",
-                        "job_progress",
-                        payload={
-                            "total": total,
-                            "processed": processed,
-                            "ean": normalized_ean,
-                            "status": "success" if ok else "failed",
-                        },
-                    )
+        if job_id:
+            await register_running_job(job_id)
+        try:
+            for elem in range(0, len(clean_eans), step):
+                if await is_cancelled(job_id):
+                    if job_id:
+                        await self._send_task_progress(
+                            job_id,
+                            "delete",
+                            "job_failed",
+                            payload={
+                                "total": total,
+                                "processed": processed,
+                                "success": sum(1 for x in result_list if x),
+                                "error": sum(1 for x in result_list if not x),
+                                "failed_eans": failed_eans,
+                            },
+                            info="stopped",
+                        )
+                    return False
+                batch_eans = clean_eans[elem : elem + step]
+                tasks = [
+                    self._delete_product_by_unit_id(str(int(float(ean))), job_id=job_id)
+                    for ean in batch_eans
+                ]
+                batch_result = await asyncio.gather(*tasks)
+                for ean, ok in zip(batch_eans, batch_result):
+                    processed += 1
+                    result_list.append(ok)
+                    normalized_ean = str(int(float(ean)))
+                    if not ok:
+                        failed_eans.append(normalized_ean)
+                    if job_id:
+                        await self._send_task_progress(
+                            job_id,
+                            "delete",
+                            "job_progress",
+                            payload={
+                                "total": total,
+                                "processed": processed,
+                                "ean": normalized_ean,
+                                "status": "success" if ok else "failed",
+                            },
+                        )
+        except asyncio.CancelledError:
+            if job_id:
+                await self._send_task_progress(
+                    job_id,
+                    "delete",
+                    "job_failed",
+                    payload={
+                        "total": total,
+                        "processed": processed,
+                        "success": sum(1 for x in result_list if x),
+                        "error": sum(1 for x in result_list if not x),
+                        "failed_eans": failed_eans,
+                    },
+                    info="stopped",
+                )
+            return False
+        finally:
+            if job_id:
+                await unregister_running_job(job_id)
 
         status_result = all(result_list)
         if job_id:
@@ -1289,36 +1316,11 @@ class KauflandController:
         processed = 0
         found_count = 0
         not_found_count = 0
-        for elem in range(0, len(clean_eans), 10):
-            if await is_cancelled(job_id):
-                if job_id:
-                    await self._send_task_progress(
-                        job_id,
-                        "checker",
-                        "job_failed",
-                        payload={
-                            "total": total,
-                            "processed": processed,
-                            "success": found_count,
-                            "error": not_found_count,
-                            "results": results,
-                        },
-                        info="stopped",
-                    )
-                return results
-            batch_eans = clean_eans[elem : elem + 10]
-            normalized_batch_eans = [str(int(float(ean))) for ean in batch_eans]
-            tasks = [
-                self._check_product_by_unit_id(normalized_ean, job_id=job_id)
-                for normalized_ean in normalized_batch_eans
-            ]
-            result = await asyncio.gather(*tasks, return_exceptions=True)
-            for normalized_ean, item in zip(normalized_batch_eans, result):
-                if isinstance(item, Exception):
-                    log(
-                        f"products_checker failed and stopped ean={normalized_ean} error={item}",
-                        save=True,
-                    )
+        if job_id:
+            await register_running_job(job_id)
+        try:
+            for elem in range(0, len(clean_eans), 10):
+                if await is_cancelled(job_id):
                     if job_id:
                         await self._send_task_progress(
                             job_id,
@@ -1327,31 +1329,80 @@ class KauflandController:
                             payload={
                                 "total": total,
                                 "processed": processed,
-                                "failed_ean": normalized_ean,
+                                "success": found_count,
+                                "error": 0,
+                                "not_found": not_found_count,
                                 "results": results,
                             },
-                            info=str(item),
+                            info="stopped",
                         )
-                    raise RuntimeError(
-                        f"products_checker failed for ean={normalized_ean}: {item}"
-                    ) from item
-                results.append(item)
-                if item.get("found"):
-                    found_count += 1
-                else:
-                    not_found_count += 1
-                processed += 1
-                if job_id:
-                    await self._send_task_progress(
-                        job_id,
-                        "checker",
-                        "job_progress",
-                        payload={
-                            "total": total,
-                            "processed": processed,
-                            "ean": normalized_ean,
-                        },
-                    )
+                    return results
+                batch_eans = clean_eans[elem : elem + 10]
+                normalized_batch_eans = [str(int(float(ean))) for ean in batch_eans]
+                tasks = [
+                    self._check_product_by_unit_id(normalized_ean, job_id=job_id)
+                    for normalized_ean in normalized_batch_eans
+                ]
+                result = await asyncio.gather(*tasks, return_exceptions=True)
+                for normalized_ean, item in zip(normalized_batch_eans, result):
+                    if isinstance(item, Exception):
+                        log(
+                            f"products_checker failed and stopped ean={normalized_ean} error={item}",
+                            save=True,
+                        )
+                        if job_id:
+                            await self._send_task_progress(
+                                job_id,
+                                "checker",
+                                "job_failed",
+                                payload={
+                                    "total": total,
+                                    "processed": processed,
+                                    "failed_ean": normalized_ean,
+                                    "results": results,
+                                },
+                                info=str(item),
+                            )
+                        raise RuntimeError(
+                            f"products_checker failed for ean={normalized_ean}: {item}"
+                        ) from item
+                    results.append(item)
+                    if item.get("found"):
+                        found_count += 1
+                    else:
+                        not_found_count += 1
+                    processed += 1
+                    if job_id:
+                        await self._send_task_progress(
+                            job_id,
+                            "checker",
+                            "job_progress",
+                            payload={
+                                "total": total,
+                                "processed": processed,
+                                "ean": normalized_ean,
+                            },
+                        )
+        except asyncio.CancelledError:
+            if job_id:
+                await self._send_task_progress(
+                    job_id,
+                    "checker",
+                    "job_failed",
+                    payload={
+                        "total": total,
+                        "processed": processed,
+                        "success": found_count,
+                        "error": 0,
+                        "not_found": not_found_count,
+                        "results": results,
+                    },
+                    info="stopped",
+                )
+            return results
+        finally:
+            if job_id:
+                await unregister_running_job(job_id)
         if job_id:
             await self._send_task_progress(
                 job_id,
@@ -1440,46 +1491,69 @@ class KauflandController:
                     )
                     return item, False
 
+        if job_id:
+            await register_running_job(job_id)
         tasks = [asyncio.create_task(run_upload(item)) for item in data]
-        for finished in asyncio.as_completed(tasks):
-            if await is_cancelled(job_id):
-                for task in tasks:
-                    if not task.done():
-                        task.cancel()
+        try:
+            for finished in asyncio.as_completed(tasks):
+                if await is_cancelled(job_id):
+                    for task in tasks:
+                        if not task.done():
+                            task.cancel()
+                    await self._emit_progress_event(
+                        job_id,
+                        "job_failed",
+                        payload={
+                            "total": total,
+                            "processed": processed_count,
+                            "success": success_count,
+                            "error": error_count,
+                            "failed_eans": failed_eans,
+                        },
+                        info="stopped",
+                    )
+                    return False
+                item, ok = await finished
+                result_list.append(ok)
+                processed_count += 1
+                current_ean = item.get("ean") if isinstance(item, dict) else None
+                if ok:
+                    success_count += 1
+                else:
+                    error_count += 1
+                    if current_ean is not None:
+                        failed_eans.append(str(current_ean))
                 await self._emit_progress_event(
                     job_id,
-                    "job_failed",
+                    "job_progress",
                     payload={
                         "total": total,
                         "processed": processed_count,
                         "success": success_count,
                         "error": error_count,
-                        "failed_eans": failed_eans,
+                        "ean": current_ean,
                     },
-                    info="stopped",
                 )
-                return False
-            item, ok = await finished
-            result_list.append(ok)
-            processed_count += 1
-            current_ean = item.get("ean") if isinstance(item, dict) else None
-            if ok:
-                success_count += 1
-            else:
-                error_count += 1
-                if current_ean is not None:
-                    failed_eans.append(str(current_ean))
+        except asyncio.CancelledError:
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
             await self._emit_progress_event(
                 job_id,
-                "job_progress",
+                "job_failed",
                 payload={
                     "total": total,
                     "processed": processed_count,
                     "success": success_count,
                     "error": error_count,
-                    "ean": current_ean,
+                    "failed_eans": failed_eans,
                 },
+                info="stopped",
             )
+            return False
+        finally:
+            if job_id:
+                await unregister_running_job(job_id)
         if all(result_list):  # Все успешно
             await self._emit_progress_event(
                 job_id,
