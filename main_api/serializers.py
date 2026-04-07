@@ -59,7 +59,7 @@ class JsonFileSerializer(serializers.Serializer):
     file = serializers.FileField()
 
     # Настройки: допустимые MIME-типы и расширения
-    ALLOWED_MIME_PREFIXES = ("application/json", "text/json")
+    ALLOWED_MIME_PREFIXES = ("application/json", "text/json", "application/ld+json")
     ALLOWED_EXTENSIONS = (".json",)
 
     def validate_file(self, uploaded_file):
@@ -69,24 +69,27 @@ class JsonFileSerializer(serializers.Serializer):
          - расширение файла
          - содержит ли файл корректный JSON (пытаемся json.load)
         """
-        # 1) Проверяем MIME-type (если есть)
-        content_type = getattr(uploaded_file, "content_type", None)
-        if content_type:
-            # allow when prefix matches (например "application/json; charset=utf-8")
-            if not any(
-                content_type.startswith(pref) for pref in self.ALLOWED_MIME_PREFIXES
-            ):
-                raise serializers.ValidationError(
-                    "Неверный MIME-type: ожидается JSON файл."
-                )
-
-        # 2) Проверяем расширение (если имя присутствует)
+        # 1) Проверяем расширение (если имя присутствует)
         filename = getattr(uploaded_file, "name", "")
         _, ext = os.path.splitext(filename.lower())
         if ext and ext not in self.ALLOWED_EXTENSIONS:
             raise serializers.ValidationError(
                 "Неверное расширение файла: ожидается .json"
             )
+
+        # 2) Проверяем MIME-type (если есть).
+        # Некоторые клиенты присылают application/octet-stream для .json,
+        # поэтому не отклоняем такие файлы, если расширение/содержимое валидны.
+        content_type = getattr(uploaded_file, "content_type", None)
+        if content_type:
+            normalized = content_type.split(";", 1)[0].strip().lower()
+            allowed_mime = any(
+                normalized.startswith(pref) for pref in self.ALLOWED_MIME_PREFIXES
+            )
+            if not allowed_mime and ext not in self.ALLOWED_EXTENSIONS:
+                raise serializers.ValidationError(
+                    f"Неверный MIME-type: {content_type}. Ожидается JSON файл."
+                )
 
         # 3) Проверяем что содержимое — корректный JSON
         # uploaded_file может быть InMemoryUploadedFile или TemporaryUploadedFile
@@ -102,7 +105,8 @@ class JsonFileSerializer(serializers.Serializer):
             raw = uploaded_file.read()
             # raw может быть bytes или str
             if isinstance(raw, bytes):
-                text = raw.decode("utf-8")
+                # utf-8-sig tolerates BOM at file start.
+                text = raw.decode("utf-8-sig")
             else:
                 text = raw
 
@@ -136,7 +140,7 @@ class JsonFileSerializer(serializers.Serializer):
         try:
             raw = uploaded_file.read()
             if isinstance(raw, bytes):
-                text = raw.decode("utf-8")
+                text = raw.decode("utf-8-sig")
             else:
                 text = raw
             parsed = json.loads(text)

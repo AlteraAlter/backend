@@ -180,7 +180,10 @@ def get_description_from_remote_server(
     tab = soup.find("div", id="tab-content1")
 
     if not tab:
-        log(f"Не найдено tab-content1 в {ean}.html")
+        # Fallbacks for newer templates
+        tab = _find_fallback_description(soup)
+    if not tab:
+        log(f"Не найдено описание (fallback) в {ean}.html")
         return ""
     head_str = str(soup.head) if soup.head else ""
 
@@ -214,3 +217,27 @@ def get_description_from_remote_server(
     """.strip()
     log(f"Generated description successfully [{ean}]")
     return final_html
+
+
+def _find_fallback_description(soup: BeautifulSoup):
+    # 1) New template: card with "Produktbeschreibung" header
+    for header in soup.find_all(["h2", "h3"]):
+        if "produktbeschreibung" in header.get_text(strip=True).lower():
+            parent = header.find_parent()
+            if parent:
+                candidate = parent.find(class_="text")
+                if candidate:
+                    return candidate
+
+    # 2) Tabs: details panel
+    candidate = soup.select_one(".tabs__panel--details .text")
+    if candidate:
+        return candidate
+
+    # 3) First description-like text block
+    candidate = soup.select_one(".card .text")
+    if candidate:
+        return candidate
+
+    # 4) Fallback to body content
+    return soup.body

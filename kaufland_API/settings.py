@@ -27,6 +27,10 @@ import os
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
+def _env_list(name: str) -> list[str]:
+    return [item.strip() for item in os.getenv(name, "").split(",") if item.strip()]
+
+
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
@@ -36,15 +40,8 @@ SECRET_KEY = "django-insecure-er2a%p#jkp3i$2t-*a!q-i!bkai)mw1se@-=uqxl+cz#%%w(jp
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = [
-    # "localhost",
-    # "127.0.0.1",
-    # "django",
-    # "192.168.0.142",
-    # "192.168.0.193",
-    # "192.168.0.111",
-    "*"
-]
+_env_allowed_hosts = _env_list("ALLOWED_HOSTS")
+ALLOWED_HOSTS = _env_allowed_hosts or ["*"]
 
 
 CSRF_TRUSTED_ORIGINS = [
@@ -82,6 +79,12 @@ CORS_ALLOWED_ORIGINS = [
     "http://192.168.0.129:5500",
     "http://192.168.0.129:8050",
 ]
+
+# Add production origins via env, e.g. https://api.example.com
+PUBLIC_ORIGINS = _env_list("PUBLIC_ORIGINS")
+if PUBLIC_ORIGINS:
+    CSRF_TRUSTED_ORIGINS += [o for o in PUBLIC_ORIGINS if o not in CSRF_TRUSTED_ORIGINS]
+    CORS_ALLOWED_ORIGINS += [o for o in PUBLIC_ORIGINS if o not in CORS_ALLOWED_ORIGINS]
 
 # Dev-only: allow all origins if CORS errors persist
 # CORS_ALLOW_ALL_ORIGINS = True
@@ -210,6 +213,10 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 ASGI_APPLICATION = "kaufland_API.asgi.application"
 
+# Trust upstream proxies (nginx) for scheme/host.
+USE_X_FORWARDED_HOST = True
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "rest_framework_simplejwt.authentication.JWTAuthentication",
@@ -221,11 +228,23 @@ REST_FRAMEWORK = {
 CACHE_TTL = 60 * 60 * 24  # сутки
 
 # Использование ВебСокета для общения в реальном времени
+REDIS_HOST = os.getenv("REDIS_HOST", "redis")
+REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+REDIS_DB = int(os.getenv("REDIS_DB", "0"))
+REDIS_PASSWORD = os.getenv("REDIS_PASSWORD") or None
+REDIS_URL = os.getenv("REDIS_URL")
+if not REDIS_URL:
+    if REDIS_PASSWORD:
+        REDIS_URL = f"redis://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}"
+    else:
+        REDIS_URL = f"redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}"
+
 CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
         "CONFIG": {
-            "hosts": [("redis", 6379)],
+            # Use URL to avoid tuple parsing issues in redis client.
+            "hosts": [REDIS_URL],
         },
     },
 }

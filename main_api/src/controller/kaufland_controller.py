@@ -34,6 +34,8 @@ from main_api.src.job_registry import (
     clear_cancel,
     register_running_job,
     unregister_running_job,
+    acquire_ean_lock,
+    release_ean_lock,
 )
 from main_api.src.ssh_client import SSHFileClient
 from main_api.src.extracter import adapt_html_description
@@ -43,6 +45,21 @@ from main_api.src.gpt.gpt_helper import generate_description, generate_seo
 from aiohttp import ClientSession
 from rest_framework import status
 
+try:
+    _GLOBAL_API_RATE = max(1, int(os.getenv("KAUFLAND_API_RATE_PER_SEC", "60")))
+except ValueError:
+    _GLOBAL_API_RATE = 60
+_GLOBAL_API_LIMITER = AsyncLimiter(_GLOBAL_API_RATE, time_period=1)
+
+try:
+    _WS_PROGRESS_INTERVAL_SEC = max(0.0, float(os.getenv("WS_PROGRESS_INTERVAL_SEC", "0.35")))
+except ValueError:
+    _WS_PROGRESS_INTERVAL_SEC = 0.35
+try:
+    _WS_PROGRESS_EVERY = max(1, int(os.getenv("WS_PROGRESS_EVERY", "5")))
+except ValueError:
+    _WS_PROGRESS_EVERY = 5
+
 
 class KauflandController:
     """
@@ -50,11 +67,8 @@ class KauflandController:
     """
 
     def __init__(self, session: ClientSession, version):
-        try:
-            api_rate = max(1, int(os.getenv("KAUFLAND_API_RATE_PER_SEC", "60")))
-        except ValueError:
-            api_rate = 60
-        self.limiter = AsyncLimiter(api_rate, time_period=1)
+        # Shared limiter for the whole process to avoid per-job rate multiplication.
+        self.limiter = _GLOBAL_API_LIMITER
         self.session = session
         self.version = version
         self.retries = 3
@@ -72,6 +86,26 @@ class KauflandController:
             "product_ids": {},
             "main_data": {},
         }
+
+    @staticmethod
+    def _should_emit_progress(
+        *,
+        processed: int,
+        total: int,
+        last_emit_at: float | None,
+        interval_sec: float = _WS_PROGRESS_INTERVAL_SEC,
+        every_n: int = _WS_PROGRESS_EVERY,
+    ) -> bool:
+        if total > 0 and processed >= total:
+            return True
+        if processed <= 0:
+            return False
+        if processed % max(1, every_n) == 0:
+            return True
+        now = time.monotonic()
+        if last_emit_at is None:
+            return True
+        return (now - last_emit_at) >= max(0.0, interval_sec)
 
     def _get_ssh_client(self):
         """
@@ -303,7 +337,7 @@ class KauflandController:
         """
         if ean in self._ean_cache["product_ids"]:
             return self._ean_cache["product_ids"][ean]
-
+ 
         async def fetch_storefront_product_id(storefront):
             log(f"[{ean}] Start of parsing product's product_id")
             url = f"{self.base_api_url}/products/ean/{ean}?storefront={storefront}&embedded=units"
@@ -325,10 +359,12 @@ class KauflandController:
         self._ean_cache["product_ids"][ean] = final_res
         return final_res
 
-    async def _add_unit_id(self, ean, price, delivery):
+    async def _add_unit_id(self, ean, price, delivery, target_storefronts=None):
         """
         Create a unit for a product in Kaufland.
         """
+        if target_storefronts is None:
+            target_storefronts = storefronts
 
         async def add_unit_for_storefront(storefront):
             url = f"{self.base_api_url}/units?storefront={storefront}&embedded=eco_participation"
@@ -342,9 +378,9 @@ class KauflandController:
                 "id_offer": f"{ean}",
                 "condition": "NEW",
             }
-            
+
             log(f"[{ean}] <====Creating an offer====>")
-            
+
             result = await self._universal_request("POST", url, body=body)
             if not isinstance(result, dict):
                 log(
@@ -363,7 +399,7 @@ class KauflandController:
             return False
 
         bool_list = await asyncio.gather(
-            *(add_unit_for_storefront(storefront) for storefront in storefronts)
+            *(add_unit_for_storefront(storefront) for storefront in target_storefronts)
         )
         return all(bool_list)
 
@@ -1097,27 +1133,56 @@ class KauflandController:
                 await self._emit_stage(job_id, ean, item_payload, "update_price")
 
                 with log_time(f"[{ean}] update price"):
-                    result = await self._update_price_by_unit_id(ean, price, unit_ids)
+                    update_result = await self._update_price_by_unit_id(
+                        ean, price, unit_ids
+                    )
 
-                if result:
+                missing_storefronts = [
+                    storefront for storefront in storefronts if storefront not in unit_ids
+                ]
+                add_result = True
+                if missing_storefronts:
+                    await self._emit_stage(job_id, ean, item_payload, "add_unit")
+                    add_result = await self._add_unit_id(
+                        ean, price, delivery, target_storefronts=missing_storefronts
+                    )
+
+                overall_result = update_result and add_result
+                status_stage = "add_unit" if missing_storefronts else "update_price"
+                if overall_result:
+                    message = (
+                        "Price updated"
+                        if not missing_storefronts
+                        else "Price updated, missing units created"
+                    )
                     await self._emit_ean_status(
                         job_id,
                         "success",
                         ean,
                         item_payload,
-                        stage="update_price",
-                        message="Price updated",
+                        stage=status_stage,
+                        message=message,
                     )
                 else:
+                    if not update_result and not add_result:
+                        message = "Price update and missing unit creation failed"
+                    elif not update_result:
+                        message = (
+                            "Price update failed; missing units created"
+                            if add_result
+                            else "Price update failed"
+                        )
+                    else:
+                        message = "Missing unit creation failed"
                     await self._emit_ean_status(
                         job_id,
                         "error",
                         ean,
                         item_payload,
-                        stage="update_price",
-                        message="Price update failed",
+                        stage=status_stage,
+                        message=message,
                     )
-                return result
+                return overall_result
             else:
                 await self._emit_stage(job_id, ean, item_payload, "add_unit")
                 result = await self._add_unit_id(ean, price, delivery)
@@ -1181,6 +1246,9 @@ class KauflandController:
         processed = 0
         result_list = []
         failed_eans = []
+        success_count = 0
+        error_count = 0
+        last_progress_emit_at = None
         step = 10
         if job_id:
             await register_running_job(job_id)
@@ -1195,8 +1263,8 @@ class KauflandController:
                             payload={
                                 "total": total,
                                 "processed": processed,
-                                "success": sum(1 for x in result_list if x),
-                                "error": sum(1 for x in result_list if not x),
+                                "success": success_count,
+                                "error": error_count,
                                 "failed_eans": failed_eans,
                             },
                             info="stopped",
@@ -1213,19 +1281,30 @@ class KauflandController:
                     result_list.append(ok)
                     normalized_ean = str(int(float(ean)))
                     if not ok:
+                        error_count += 1
                         failed_eans.append(normalized_ean)
+                    else:
+                        success_count += 1
                     if job_id:
-                        await self._send_task_progress(
-                            job_id,
-                            "delete",
-                            "job_progress",
-                            payload={
-                                "total": total,
-                                "processed": processed,
-                                "ean": normalized_ean,
-                                "status": "success" if ok else "failed",
-                            },
-                        )
+                        if self._should_emit_progress(
+                            processed=processed,
+                            total=total,
+                            last_emit_at=last_progress_emit_at,
+                        ):
+                            await self._send_task_progress(
+                                job_id,
+                                "delete",
+                                "job_progress",
+                                payload={
+                                    "total": total,
+                                    "processed": processed,
+                                    "success": success_count,
+                                    "error": error_count,
+                                    "ean": normalized_ean,
+                                    "status": "success" if ok else "failed",
+                                },
+                            )
+                            last_progress_emit_at = time.monotonic()
         except asyncio.CancelledError:
             if job_id:
                 await self._send_task_progress(
@@ -1235,8 +1314,8 @@ class KauflandController:
                     payload={
                         "total": total,
                         "processed": processed,
-                        "success": sum(1 for x in result_list if x),
-                        "error": sum(1 for x in result_list if not x),
+                        "success": success_count,
+                        "error": error_count,
                         "failed_eans": failed_eans,
                     },
                     info="stopped",
@@ -1255,8 +1334,8 @@ class KauflandController:
                 payload={
                     "total": total,
                     "processed": processed,
-                    "success": sum(1 for x in result_list if x),
-                    "failed": sum(1 for x in result_list if not x),
+                    "success": success_count,
+                    "failed": error_count,
                     "failed_eans": failed_eans,
                 },
                 info="success" if status_result else "partial_or_failed",
@@ -1316,6 +1395,7 @@ class KauflandController:
         processed = 0
         found_count = 0
         not_found_count = 0
+        last_progress_emit_at = None
         if job_id:
             await register_running_job(job_id)
         try:
@@ -1373,16 +1453,24 @@ class KauflandController:
                         not_found_count += 1
                     processed += 1
                     if job_id:
-                        await self._send_task_progress(
-                            job_id,
-                            "checker",
-                            "job_progress",
-                            payload={
-                                "total": total,
-                                "processed": processed,
-                                "ean": normalized_ean,
-                            },
-                        )
+                        if self._should_emit_progress(
+                            processed=processed,
+                            total=total,
+                            last_emit_at=last_progress_emit_at,
+                        ):
+                            await self._send_task_progress(
+                                job_id,
+                                "checker",
+                                "job_progress",
+                                payload={
+                                    "total": total,
+                                    "processed": processed,
+                                    "success": processed,
+                                    "error": 0,
+                                    "ean": normalized_ean,
+                                },
+                            )
+                            last_progress_emit_at = time.monotonic()
         except asyncio.CancelledError:
             if job_id:
                 await self._send_task_progress(
@@ -1446,16 +1534,34 @@ class KauflandController:
             if not pattern.search(str(elem.get("article", "")))
         ]
 
+        # Keep only unique EANs from the start.
+        unique_data: list[dict] = []
+        seen_eans: set[str] = set()
+        removed_duplicates = 0
+        for item in data:
+            ean_value = str(item.get("ean") or "").strip()
+            if not ean_value:
+                unique_data.append(item)
+                continue
+            if ean_value in seen_eans:
+                removed_duplicates += 1
+                continue
+            seen_eans.add(ean_value)
+            unique_data.append(item)
+        data = unique_data
+
         result_list = []
         concurrency = self.upload_batch_size
 
-        # Если были удалены элементы, фиксируем это
-        if len(data) < original_len:
-            result_list.append(False)
+        skipped_count = original_len - len(data)
+
+        # Если были удалены элементы, фиксируем это в логах и прогрессе.
         if removed_invalid_items:
             log(
                 f"upload skipped invalid items count={removed_invalid_items}", save=True
             )
+        if removed_duplicates:
+            log(f"upload skipped duplicate eans count={removed_duplicates}", save=True)
 
         if not job_id:
             job_id = uuid4().hex
@@ -1465,7 +1571,13 @@ class KauflandController:
         await self._emit_progress_event(
             job_id,
             "job_started",
-            payload={"total": total, "controller": self.version},
+            payload={
+                "total": total,
+                "controller": self.version,
+                "skipped": skipped_count,
+                "skipped_invalid": removed_invalid_items,
+                "skipped_duplicates": removed_duplicates,
+            },
         )
 
         success_count = 0
@@ -1473,33 +1585,68 @@ class KauflandController:
         processed_count = 0
         failed_eans = []
 
-        semaphore = asyncio.Semaphore(concurrency)
+        last_progress_emit_at = None
+        work_queue: asyncio.Queue = asyncio.Queue()
+        done_queue: asyncio.Queue = asyncio.Queue()
+        for item in data:
+            await work_queue.put(item)
+        worker_count = min(concurrency, total) if total > 0 else 0
+        for _ in range(worker_count):
+            await work_queue.put(None)
 
-        async def run_upload(item):
-            async with semaphore:
-                if await is_cancelled(job_id):
-                    return item, False
+        async def run_upload_worker():
+            while True:
+                item = await work_queue.get()
+                if item is None:
+                    work_queue.task_done()
+                    return
+
+                ok = False
+                ean = None
                 try:
-                    return item, bool(
-                        await self._create_product(item, job_id, self.version)
-                    )
+                    if await is_cancelled(job_id):
+                        ok = False
+                    else:
+                        if isinstance(item, dict):
+                            raw_ean = item.get("ean")
+                            ean = str(raw_ean).strip() if raw_ean is not None else None
+                        lock_token = await acquire_ean_lock(ean, owner=f"{job_id}:{self.version}")
+                        if ean and not lock_token:
+                            await self._emit_ean_status(
+                                job_id,
+                                "error",
+                                ean,
+                                self._build_item_payload(item),
+                                stage="acquire_ean_lock",
+                                message="EAN is already being uploaded by another task",
+                            )
+                            log(f"upload skipped locked ean={ean} job_id={job_id}", save=True)
+                            ok = False
+                        else:
+                            try:
+                                ok = bool(await self._create_product(item, job_id, self.version))
+                            finally:
+                                await release_ean_lock(ean, lock_token)
                 except Exception as e:
-                    ean = item.get("ean") if isinstance(item, dict) else None
                     log(
                         f"upload unexpected error ean={ean} error={e}",
                         save=True,
                     )
-                    return item, False
+                    ok = False
+                finally:
+                    await done_queue.put((item, ok))
+                    work_queue.task_done()
 
         if job_id:
             await register_running_job(job_id)
-        tasks = [asyncio.create_task(run_upload(item)) for item in data]
+        workers = [asyncio.create_task(run_upload_worker()) for _ in range(worker_count)]
         try:
-            for finished in asyncio.as_completed(tasks):
+            while processed_count < total:
                 if await is_cancelled(job_id):
-                    for task in tasks:
-                        if not task.done():
-                            task.cancel()
+                    for worker in workers:
+                        worker.cancel()
+                    if workers:
+                        await asyncio.gather(*workers, return_exceptions=True)
                     await self._emit_progress_event(
                         job_id,
                         "job_failed",
@@ -1513,7 +1660,10 @@ class KauflandController:
                         info="stopped",
                     )
                     return False
-                item, ok = await finished
+                try:
+                    item, ok = await asyncio.wait_for(done_queue.get(), timeout=0.25)
+                except asyncio.TimeoutError:
+                    continue
                 result_list.append(ok)
                 processed_count += 1
                 current_ean = item.get("ean") if isinstance(item, dict) else None
@@ -1523,21 +1673,30 @@ class KauflandController:
                     error_count += 1
                     if current_ean is not None:
                         failed_eans.append(str(current_ean))
-                await self._emit_progress_event(
-                    job_id,
-                    "job_progress",
-                    payload={
-                        "total": total,
-                        "processed": processed_count,
-                        "success": success_count,
-                        "error": error_count,
-                        "ean": current_ean,
-                    },
-                )
+                if self._should_emit_progress(
+                    processed=processed_count,
+                    total=total,
+                    last_emit_at=last_progress_emit_at,
+                ):
+                    await self._emit_progress_event(
+                        job_id,
+                        "job_progress",
+                        payload={
+                            "total": total,
+                            "processed": processed_count,
+                            "success": success_count,
+                            "error": error_count,
+                            "ean": current_ean,
+                        },
+                    )
+                    last_progress_emit_at = time.monotonic()
+            if workers:
+                await asyncio.gather(*workers, return_exceptions=True)
         except asyncio.CancelledError:
-            for task in tasks:
-                if not task.done():
-                    task.cancel()
+            for worker in workers:
+                worker.cancel()
+            if workers:
+                await asyncio.gather(*workers, return_exceptions=True)
             await self._emit_progress_event(
                 job_id,
                 "job_failed",
@@ -1564,6 +1723,9 @@ class KauflandController:
                     "processed": processed_count,
                     "success": success_count,
                     "error": error_count,
+                    "skipped": skipped_count,
+                    "skipped_invalid": removed_invalid_items,
+                    "skipped_duplicates": removed_duplicates,
                     "failed_eans": failed_eans,
                 },
             )
@@ -1578,6 +1740,9 @@ class KauflandController:
                     "processed": processed_count,
                     "success": success_count,
                     "error": error_count,
+                    "skipped": skipped_count,
+                    "skipped_invalid": removed_invalid_items,
+                    "skipped_duplicates": removed_duplicates,
                     "failed_eans": failed_eans,
                 },
             )
@@ -1593,6 +1758,9 @@ class KauflandController:
                     "processed": processed_count,
                     "success": success_count,
                     "error": error_count,
+                    "skipped": skipped_count,
+                    "skipped_invalid": removed_invalid_items,
+                    "skipped_duplicates": removed_duplicates,
                     "failed_eans": failed_eans,
                 },
             )

@@ -140,13 +140,17 @@ async def download_and_process_image(
 
                 # 🔥 MOVE PIL TO THREAD
                 loop = asyncio.get_running_loop()
-                processed_bytes = await loop.run_in_executor(
-                    None,
-                    _process_image_sync,
-                    content,
-                    clean_name,
-                    ext,
-                )
+                try:
+                    processed_bytes = await loop.run_in_executor(
+                        None,
+                        _process_image_sync,
+                        content,
+                        clean_name,
+                        ext,
+                    )
+                except Exception as e:
+                    log(f"[IMG] {url} processing error: {e}", save=True)
+                    return None
 
                 filename = f"{uuid.uuid4().hex}_{clean_name}"
                 path = os.path.join(output_dir, filename)

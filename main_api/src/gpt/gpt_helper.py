@@ -31,23 +31,26 @@ async def generate_description(article, size, color, material):
     WICHTIG: Antworte ausschließlich mit dem fertigen Beschreibungstext, ohne Titel, Erklärungen oder Zusätze.
     """
 
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {
-                "role": "system",
-                "content": "Du bist ein professioneller Werbetexter für luxuriöse Möbelmarken. Du verfasst exklusive, "
-                "verkaufsstarke Produktbeschreibungen auf Deutsch für eine anspruchsvolle Kundschaft im "
-                "Premiumsegment. Dein Schreibstil ist elegant, selbstbewusst und überzeugt durch Exklusivität. "
-                "Du verwendest keine Emojis und keine überflüssigen Floskeln. Du betonst die Hochwertigkeit, "
-                "den luxuriösen Charakter, die handwerkliche Qualität und die Einzigartigkeit jedes Produkts. "
-                "Antworte ausschließlich mit dem fertigen Beschreibungstext, ohne Überschriften, Einleitungen, "
-                "Erklärungen oder Zusatztexte.",
-            },
-            {"role": "user", "content": prompt},
-        ],
-        temperature=0.7,
-    )
+    def _do_request():
+        return client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "Du bist ein professioneller Werbetexter für luxuriöse Möbelmarken. Du verfasst exklusive, "
+                    "verkaufsstarke Produktbeschreibungen auf Deutsch für eine anspruchsvolle Kundschaft im "
+                    "Premiumsegment. Dein Schreibstil ist elegant, selbstbewusst und überzeugt durch Exklusivität. "
+                    "Du verwendest keine Emojis und keine überflüssigen Floskeln. Du betonst die Hochwertigkeit, "
+                    "den luxuriösen Charakter, die handwerkliche Qualität und die Einzigartigkeit jedes Produkts. "
+                    "Antworte ausschließlich mit dem fertigen Beschreibungstext, ohne Überschriften, Einleitungen, "
+                    "Erklärungen oder Zusatztexte.",
+                },
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.7,
+        )
+
+    response = await asyncio.to_thread(_do_request)
 
     description = response.choices[0].message.content.strip()
     return description
@@ -78,19 +81,22 @@ async def generate_seo(article, size=None, color=None, material=None):
     - Gib die Wörter in einer JSON-Liste zurück, z.B.: ["Wort1", "Wort2", ...]
     """
 
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {
-                "role": "system",
-                "content": "Du bist ein professioneller SEO-Texter für luxuriöse Möbel. "
-                "Du erstellst exklusive, prägnante und hochwertige SEO-Schlüsselwörter auf Deutsch. "
-                "Du verwendest keine Emojis, keine Satzzeichen und keine Erklärungen.",
-            },
-            {"role": "user", "content": prompt},
-        ],
-        temperature=0.6,
-    )
+    def _do_request():
+        return client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "Du bist ein professioneller SEO-Texter für luxuriöse Möbel. "
+                    "Du erstellst exklusive, prägnante und hochwertige SEO-Schlüsselwörter auf Deutsch. "
+                    "Du verwendest keine Emojis, keine Satzzeichen und keine Erklärungen.",
+                },
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.6,
+        )
+
+    response = await asyncio.to_thread(_do_request)
 
     seo_text = response.choices[0].message.content.strip()
 

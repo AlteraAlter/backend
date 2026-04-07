@@ -1,6 +1,10 @@
 from channels.generic.websocket import AsyncWebsocketConsumer
 from urllib.parse import parse_qs
 import json
+import logging
+
+
+logger = logging.getLogger(__name__)
 
 
 class UploadProgressConsumer(AsyncWebsocketConsumer):
@@ -10,14 +14,38 @@ class UploadProgressConsumer(AsyncWebsocketConsumer):
         if not job_id:
             query_string = self.scope.get("query_string", b"").decode("utf-8")
             job_id = parse_qs(query_string).get("job_id", [None])[0]
-        self.job_id = job_id or "default"
+        self.job_id = str(job_id or "").strip()
+        if not self.job_id:
+            logger.warning(
+                "ws_upload_close_missing_job_id path=%s client=%s",
+                self.scope.get("path"),
+                self.scope.get("client"),
+            )
+            await self.close(code=4400)
+            return
         self.group_name = f"{self.job_id}_upload"
 
         await self.channel_layer.group_add(self.group_name, self.channel_name)
         await self.accept()
+        logger.info(
+            "ws_upload_connected job_id=%s group=%s channel=%s client=%s",
+            self.job_id,
+            self.group_name,
+            self.channel_name,
+            self.scope.get("client"),
+        )
 
     async def disconnect(self, close_code):
-        await self.channel_layer.group_discard(self.group_name, self.channel_name)
+        group_name = getattr(self, "group_name", None)
+        if group_name:
+            await self.channel_layer.group_discard(group_name, self.channel_name)
+        logger.info(
+            "ws_upload_disconnected job_id=%s group=%s channel=%s close_code=%s",
+            getattr(self, "job_id", None),
+            group_name,
+            self.channel_name,
+            close_code,
+        )
 
     async def ws_message(self, event):
         await self.send(
@@ -40,14 +68,37 @@ class CheckerProgressConsumer(AsyncWebsocketConsumer):
         if not job_id:
             query_string = self.scope.get("query_string", b"").decode("utf-8")
             job_id = parse_qs(query_string).get("job_id", [None])[0]
-        self.job_id = job_id or "default"
+        self.job_id = str(job_id or "").strip()
+        if not self.job_id:
+            logger.warning(
+                "ws_checker_close_missing_job_id path=%s client=%s",
+                self.scope.get("path"),
+                self.scope.get("client"),
+            )
+            await self.close(code=4400)
+            return
         self.group_name = f"{self.job_id}_checker"
-        print("CHECK SOCKET CONNECT")
         await self.channel_layer.group_add(self.group_name, self.channel_name)
         await self.accept()
+        logger.info(
+            "ws_checker_connected job_id=%s group=%s channel=%s client=%s",
+            self.job_id,
+            self.group_name,
+            self.channel_name,
+            self.scope.get("client"),
+        )
 
     async def disconnect(self, close_code):
-        await self.channel_layer.group_discard(self.group_name, self.channel_name)
+        group_name = getattr(self, "group_name", None)
+        if group_name:
+            await self.channel_layer.group_discard(group_name, self.channel_name)
+        logger.info(
+            "ws_checker_disconnected job_id=%s group=%s channel=%s close_code=%s",
+            getattr(self, "job_id", None),
+            group_name,
+            self.channel_name,
+            close_code,
+        )
 
     async def ws_message(self, event):
         await self.send(
@@ -70,7 +121,7 @@ class DeleteProgressConsumer(AsyncWebsocketConsumer):
         if not job_id:
             query_string = self.scope.get("query_string", b"").decode("utf-8")
             job_id = parse_qs(query_string).get("job_id", [None])[0]
-        self.job_id = job_id
+        self.job_id = str(job_id or "").strip() or None
         if self.job_id:
             self.group_name = f"{self.job_id}_delete"
         else:
@@ -78,9 +129,25 @@ class DeleteProgressConsumer(AsyncWebsocketConsumer):
 
         await self.channel_layer.group_add(self.group_name, self.channel_name)
         await self.accept()
+        logger.info(
+            "ws_delete_connected job_id=%s group=%s channel=%s client=%s",
+            self.job_id,
+            self.group_name,
+            self.channel_name,
+            self.scope.get("client"),
+        )
 
     async def disconnect(self, code):
-        await self.channel_layer.group_discard(self.group_name, self.channel_name)
+        group_name = getattr(self, "group_name", None)
+        if group_name:
+            await self.channel_layer.group_discard(group_name, self.channel_name)
+        logger.info(
+            "ws_delete_disconnected job_id=%s group=%s channel=%s close_code=%s",
+            getattr(self, "job_id", None),
+            group_name,
+            self.channel_name,
+            code,
+        )
 
     async def delete_progress(self, event):
         """ """

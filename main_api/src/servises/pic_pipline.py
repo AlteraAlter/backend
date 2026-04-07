@@ -78,7 +78,11 @@ async def process_pics(pics: list[str]) -> list[str]:
         upload_tasks = []
 
         for finished in asyncio.as_completed(download_tasks):
-            local_path = await finished
+            try:
+                local_path = await finished
+            except Exception as e:
+                log(f"Download task failed: {e}", save=True)
+                continue
             log(f"DEBUG: local_path = {local_path}")
             if local_path and os.path.exists(local_path):
                 upload_tasks.append(asyncio.create_task(upload_worker(local_path)))
