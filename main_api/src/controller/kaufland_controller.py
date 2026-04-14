@@ -52,13 +52,13 @@ except ValueError:
 _GLOBAL_API_LIMITER = AsyncLimiter(_GLOBAL_API_RATE, time_period=1)
 
 try:
-    _WS_PROGRESS_INTERVAL_SEC = max(0.0, float(os.getenv("WS_PROGRESS_INTERVAL_SEC", "0.35")))
+    _WS_PROGRESS_INTERVAL_SEC = max(0.0, float(os.getenv("WS_PROGRESS_INTERVAL_SEC", "60")))
 except ValueError:
-    _WS_PROGRESS_INTERVAL_SEC = 0.35
+    _WS_PROGRESS_INTERVAL_SEC = 60
 try:
-    _WS_PROGRESS_EVERY = max(1, int(os.getenv("WS_PROGRESS_EVERY", "5")))
+    _WS_PROGRESS_EVERY = max(0, int(os.getenv("WS_PROGRESS_EVERY", "0")))
 except ValueError:
-    _WS_PROGRESS_EVERY = 5
+    _WS_PROGRESS_EVERY = 0
 
 
 class KauflandController:
@@ -71,6 +71,7 @@ class KauflandController:
         self.limiter = _GLOBAL_API_LIMITER
         self.session = session
         self.version = version
+        self.channel_layer = get_channel_layer()
         self.retries = 3
         self.backoff = 2
         try:
@@ -100,7 +101,7 @@ class KauflandController:
             return True
         if processed <= 0:
             return False
-        if processed % max(1, every_n) == 0:
+        if every_n > 0 and processed % every_n == 0:
             return True
         now = time.monotonic()
         if last_emit_at is None:
@@ -464,17 +465,12 @@ class KauflandController:
     ):
         if not job_id:
             return
-        channel_layer = get_channel_layer()
-        await channel_layer.group_send(
-            f"{job_id}_upload",
-            {
-                "type": "ws_message",
-                "job_id": job_id,
-                "event": event,
-                "payload": payload,
-                "info": info,
-                "timestamp": datetime.now().isoformat(),
-            },
+        await self._ws_message_send(
+            group_name=f"{job_id}_upload",
+            job_id=job_id,
+            event=event,
+            payload=payload,
+            info=info,
         )
 
     async def _send_task_progress(
@@ -487,18 +483,33 @@ class KauflandController:
     ):
         if not job_id:
             return
-        channel_layer = get_channel_layer()
-        group_name = f"{job_id}_{task}"
         payload_with_task = dict(payload or {})
         payload_with_task.setdefault("task", task)
+        await self._ws_message_send(
+            group_name=f"{job_id}_{task}",
+            job_id=job_id,
+            event=event,
+            payload=payload_with_task,
+            info=info,
+        )
 
-        await channel_layer.group_send(
+    async def _ws_message_send(
+        self,
+        group_name: str,
+        job_id: str,
+        event: str,
+        payload: dict | None = None,
+        info: str | None = None,
+    ):
+        if not self.channel_layer:
+            return
+        await self.channel_layer.group_send(
             group_name,
             {
                 "type": "ws_message",
                 "job_id": job_id,
                 "event": event,
-                "payload": payload_with_task,
+                "payload": payload,
                 "info": info,
                 "timestamp": datetime.now().isoformat(),
             },
