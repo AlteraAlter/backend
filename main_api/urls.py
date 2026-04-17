@@ -5,12 +5,16 @@ from main_api.views import (
     MainOperationsView,
     UploadCollectionsViaJsonView,
     ProtectedView,
+    HealthCheckView,
+    ProductByEanView,
     StopJobView,
     AftercoolLoginView
 )
 from main_api.auth.views import CustomTokenObtainSlidingView
 
 urlpatterns = [
+    path("health/", HealthCheckView.as_view(), name="health"),
+    path("products/ean/<str:ean>/", ProductByEanView.as_view(), name="product_by_ean"),
     path("kaufland_main/", MainOperationsView.as_view(), name="main_operations"),
     path(
         "kaufland_main/upload_json/",

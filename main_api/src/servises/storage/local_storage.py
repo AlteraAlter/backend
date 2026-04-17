@@ -1,22 +1,29 @@
 import os
 import shutil
-import asyncio
+from config import MAIN_HOST
+from .base import ImageStorage
 
 
-class LocalStorage:
-    def __init__(self, file):
-        self.file = file
+class LocalImageStorage(ImageStorage):
+    def __init__(
+        self,
+        base_dir: str = "/app/media/upload-images",
+        url_prefix: str = "/upload-images",
+        public_base_url: str | None = None,
+    ):
+        self.base_dir = base_dir
+        self.url_prefix = "/" + url_prefix.strip("/")
+        self.public_base_url = (public_base_url or f"https://{MAIN_HOST}").rstrip("/")
+        os.makedirs(self.base_dir, exist_ok=True)
 
-    async def upload(self):
-        filename = os.path.basename(self.file)
-        return filename
+    def _public_url_for_filename(self, filename: str) -> str:
+        return f"{self.public_base_url}{self.url_prefix}/{filename}"
 
+    async def upload(self, local_path: str) -> str:
+        filename = os.path.basename(local_path)
+        target_path = os.path.join(self.base_dir, filename)
 
-async def main():
-    file = "https://www.shutterstock.com/shutterstock/photos/2728618231/display_1500/stock-photo-close-up-of-the-tail-of-a-diving-humpback-whale-megaptera-novaeangliae-image-taken-in-the-graham-2728618231.jpg"
-    strg = LocalStorage(file=file)
-    print(await strg.upload())
+        if os.path.abspath(local_path) != os.path.abspath(target_path):
+            shutil.move(local_path, target_path)
 
-
-if __name__ == "__main__":
-    asyncio.run(main())
+        return self._public_url_for_filename(filename)

@@ -1,11 +1,11 @@
 import os
-import shutil
 import asyncio
 import aiohttp
 import tempfile
-from ast import List
+import time
+from typing import List
 from main_api.src.logger import log
-from .storage.sftp import SftpImageStorage
+from .storage.local_storage import LocalImageStorage
 from .image_processing import download_and_process_image
 
 
@@ -23,6 +23,25 @@ def _env_int(name: str, default: int) -> int:
 # How many parallel workers run simultaniously
 MAX_PARALLEL_DOWNLOADS = _env_int("PIC_MAX_PARALLEL_DOWNLOADS", 8)
 MAX_PARALLEL_UPLOADS = _env_int("PIC_MAX_PARALLEL_UPLOADS", 4)
+LOCAL_IMAGE_TTL_MINUTES = _env_int("LOCAL_IMAGE_TTL_MINUTES", 30)
+LOCAL_IMAGE_DIR = os.getenv("LOCAL_IMAGE_DIR", "/app/media/upload-images")
+LOCAL_IMAGE_URL_PREFIX = os.getenv("LOCAL_IMAGE_URL_PREFIX", "/upload-images")
+LOCAL_IMAGE_PUBLIC_BASE_URL = os.getenv("LOCAL_IMAGE_PUBLIC_BASE_URL")
+
+
+def cleanup_expired_local_images(base_dir: str, ttl_minutes: int) -> None:
+    os.makedirs(base_dir, exist_ok=True)
+    ttl_seconds = max(60, ttl_minutes * 60)
+    cutoff = time.time() - ttl_seconds
+
+    for entry in os.scandir(base_dir):
+        if not entry.is_file(follow_symlinks=False):
+            continue
+        try:
+            if entry.stat().st_mtime < cutoff:
+                os.remove(entry.path)
+        except Exception as e:
+            log(f"Local image cleanup failed path={entry.path} error={e}", save=True)
 
 
 # =========================
@@ -30,16 +49,21 @@ MAX_PARALLEL_UPLOADS = _env_int("PIC_MAX_PARALLEL_UPLOADS", 4)
 # =========================
 async def process_pics(pics: list[str]) -> list[str]:
     """
-    Optimized image pipeline:
+    Local image pipeline:
     - downloads images concurrently
-    - uploads immediately after download
-    - cleans temp files early
+    - stores in project folder
+    - removes files older than TTL
     """
 
     if not pics:
         return []
 
-    storage = SftpImageStorage()
+    storage = LocalImageStorage(
+        base_dir=LOCAL_IMAGE_DIR,
+        url_prefix=LOCAL_IMAGE_URL_PREFIX,
+        public_base_url=LOCAL_IMAGE_PUBLIC_BASE_URL,
+    )
+    cleanup_expired_local_images(storage.base_dir, LOCAL_IMAGE_TTL_MINUTES)
     timeout = aiohttp.ClientTimeout(total=120)
 
     download_sem = asyncio.Semaphore(MAX_PARALLEL_DOWNLOADS)
@@ -61,18 +85,9 @@ async def process_pics(pics: list[str]) -> list[str]:
                         uploaded_urls.append(remote_url)
                 except Exception as e:
                     log(
-                        f"FTP upload failed local_path={local_path} error={e}",
+                        f"Local image publish failed local_path={local_path} error={e}",
                         save=True,
                     )
-                finally:
-                    # Cleanup immidietly
-                    try:
-                        os.remove(local_path)
-                    except Exception as e:
-                        log(
-                            f"Cleanup failed local_path={local_path} error={e}",
-                            save=True,
-                        )
 
         download_tasks = [asyncio.create_task(download_worker(url)) for url in pics]
         upload_tasks = []

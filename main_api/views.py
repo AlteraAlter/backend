@@ -2,6 +2,7 @@ import aiohttp
 from uuid import uuid4
 import asyncio
 import os
+from django.db import connection
 from adrf.views import APIView
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
@@ -41,6 +42,12 @@ try:
 except ValueError:
     MAX_CONCURRENT_JOBS = 3
 JOB_SEMAPHORE = asyncio.Semaphore(MAX_CONCURRENT_JOBS)
+
+
+def _db_ping() -> None:
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT 1")
+        cursor.fetchone()
 
 
 async def _run_checker_job(controller_name: str, eans: list[str], job_id: str) -> None:
@@ -468,6 +475,64 @@ class ProtectedView(APIView):
 
     async def get(self, request):
         return Response({"message": "ok"}, status=status.HTTP_200_OK)
+
+
+class HealthCheckView(APIView):
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    async def get(self, request):
+        try:
+            await asyncio.to_thread(_db_ping)
+        except Exception:
+            return Response(
+                {
+                    "status": "degraded",
+                    "service": "kaufland-api",
+                    "database": "error",
+                },
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        return Response(
+            {
+                "status": "ok",
+                "service": "kaufland-api",
+                "database": "ok",
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class ProductByEanView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    async def get(self, request, ean: str):
+        normalized_ean = str(ean or "").strip()
+        if not normalized_ean:
+            return Response(
+                {"error": "ean is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        controller_name = str(request.query_params.get("controller", "jv")).strip().lower()
+        if controller_name not in {"jv", "xl"}:
+            return Response(
+                {"error": "controller must be 'jv' or 'xl'"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        async with aiohttp.ClientSession() as session:
+            controller = KauflandController(session, controller_name)
+            result = await controller._check_product_by_unit_id(normalized_ean)
+
+        return Response(
+            {
+                "controller": controller_name,
+                **result,
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class StopJobView(APIView):
