@@ -6,6 +6,7 @@ from main_api.views import (
     UploadCollectionsViaJsonView,
     ProtectedView,
     StopJobView,
+    AftercoolLoginView
 )
 from main_api.auth.views import CustomTokenObtainSlidingView
 
@@ -20,4 +21,5 @@ urlpatterns = [
     path("protected/", ProtectedView.as_view(), name="protected"),
     path("token/", CustomTokenObtainSlidingView.as_view(), name="token_obtain_pair"),
     path("token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
+    path("aftercool_login/", AftercoolLoginView.as_view(), name="aftercool_login"),
 ]

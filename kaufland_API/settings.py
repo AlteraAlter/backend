@@ -20,6 +20,8 @@ from config import (
     DB_HOST,
     DB_PORT,
     MAIN_HOST,
+    CELERY_REDIS_BROKER_DB,
+    CELERY_REDIS_RESULT_DB
 )
 import os
 
@@ -106,6 +108,7 @@ INSTALLED_APPS = [
     "main_api",
     "channels",
     "rest_framework_simplejwt",
+    "drf_spectacular",
 ]
 
 MIDDLEWARE = [
@@ -222,6 +225,13 @@ REST_FRAMEWORK = {
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ),
     "DEFAULT_CHARSET": "utf-8",
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+}
+
+SPECTACULAR_SETTINGS = {
+    "TITLE": "Kaufland API",
+    "DESCRIPTION": "API documentation",
+    "VERSION": "1.0.0",
 }
 
 # (не обязательно, но полезно)
@@ -256,3 +266,8 @@ SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(weeks=1),
     "REFRESH_TOKEN_LIFETIME": timedelta(weeks=1),
 }
+
+
+#CELERY SETTINGS
+CELERY_BROKER_URL = f"redis://redis:6319/{CELERY_REDIS_BROKER_DB}"
+CELERY_RESULT_BACKEND = f"redis://redis:6319/{CELERY_REDIS_RESULT_DB}"

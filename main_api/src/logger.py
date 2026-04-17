@@ -3,6 +3,8 @@ import inspect
 import contextvars
 import os
 import re
+import io
+import csv
 import queue
 import threading
 import atexit
@@ -184,6 +186,20 @@ def _format_record(level_num: int, message: str, extra: dict) -> str:
     return formatter.format(record)
 
 
+def _format_record_csv(level_num: int, message: str, extra: dict) -> str:
+    record = logger.makeRecord(
+        logger.name, level_num, "", 0, message, (), None, extra=extra
+    )
+    tz = ZoneInfo("Asia/Almaty")
+    timestamp = datetime.now(tz).strftime("%Y-%m-%d %H:%M:%S")
+    func_name = getattr(record, "caller", record.funcName)
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow([timestamp, record.levelname, func_name, message])
+    return buf.getvalue().rstrip("\r\n")
+
+
 def _append_line(path: str, line: str) -> None:
     _ensure_writer()
     try:
@@ -234,7 +250,8 @@ def log(*args, print: bool = True, save: bool = False, level: str | int = "info"
         logger.log(level_num, message, extra=extra)
 
     formatted = _format_record(level_num, message, extra)
+    formatted_csv = _format_record_csv(level_num, message, extra)
     if save:
-        _append_line(_global_log_file, formatted)
+        _append_line(_global_log_file, formatted_csv)
     if context and context.get("path"):
         _append_line(context["path"], formatted)

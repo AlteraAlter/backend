@@ -52,6 +52,15 @@ except ValueError:
 _GLOBAL_API_LIMITER = AsyncLimiter(_GLOBAL_API_RATE, time_period=1)
 
 try:
+    _GLOBAL_REQUEST_DELAY_SEC = max(
+        0.0, float(os.getenv("KAUFLAND_API_REQUEST_DELAY_SEC", "0.08"))
+    )
+except ValueError:
+    _GLOBAL_REQUEST_DELAY_SEC = 0.08
+_GLOBAL_REQUEST_DELAY_LOCK = asyncio.Lock()
+_GLOBAL_LAST_REQUEST_AT = 0.0
+
+try:
     _WS_PROGRESS_INTERVAL_SEC = max(0.0, float(os.getenv("WS_PROGRESS_INTERVAL_SEC", "60")))
 except ValueError:
     _WS_PROGRESS_INTERVAL_SEC = 60
@@ -119,6 +128,17 @@ class KauflandController:
             )
         return self._ssh_client
 
+    async def _apply_inter_request_delay(self) -> None:
+        global _GLOBAL_LAST_REQUEST_AT
+        if _GLOBAL_REQUEST_DELAY_SEC <= 0:
+            return
+        async with _GLOBAL_REQUEST_DELAY_LOCK:
+            now = time.monotonic()
+            wait_seconds = (_GLOBAL_LAST_REQUEST_AT + _GLOBAL_REQUEST_DELAY_SEC) - now
+            if wait_seconds > 0:
+                await asyncio.sleep(wait_seconds)
+            _GLOBAL_LAST_REQUEST_AT = time.monotonic()
+
     # NOTE: НЕ ТРОГАТЬ!!!
     @staticmethod
     def _sign_request(method, uri, body, timestamp, secret_key):
@@ -177,6 +197,7 @@ class KauflandController:
             headers = await self._get_headers(url, serialized_body, method=method)
 
             async with self.limiter:
+                await self._apply_inter_request_delay()
                 if method == "GET":
                     async with self.session.get(
                         url=url, headers=headers, params=params, ssl=ssl_cert
@@ -302,12 +323,8 @@ class KauflandController:
             return self._ean_cache["unit_ids"][ean]
 
         async def fetch_storefront_unit_id(storefront):
-            log(f"[{ean}] Starting the fetch of id_unit")
-
             url = f"{self.base_api_url}/products/ean/{ean}?storefront={storefront}&embedded=units"
             result = await self._universal_request(method="GET", url=url)
-
-            log(f"[{ean}] End of fetch. Result is -----> {result}")
 
             if not isinstance(result, dict):
                 return storefront, None
@@ -598,16 +615,21 @@ class KauflandController:
             payload["detail"] = detail
         await self._emit_progress_event(job_id, "ean_completed", payload=payload)
 
-    async def _update_price_by_unit_id(self, ean, price, new_unit_id: dict[str, str]):
+    async def _update_price_by_unit_id(
+        self,
+        ean,
+        price,
+        new_unit_id: dict[str, str] | None = None,
+    ):
         """
         Update product price by unit_id.
         """
         channel_layer = get_channel_layer()
-        # final_res = await self._fetch_unit_id_by_ean(ean)
+        final_res = new_unit_id if new_unit_id is not None else await self._fetch_unit_id_by_ean(ean)
 
-        if new_unit_id:
+        if final_res:
             bool_list = []
-            for storefront, unit_id in new_unit_id.items():
+            for storefront, unit_id in final_res.items():
                 url = f"{self.base_api_url}/units/{unit_id}?storefront={storefront}&embedded=eco_participation"
                 total_price = await self._make_price(storefront=storefront, price=price)
                 payload = {"listing_price": total_price}
@@ -642,10 +664,6 @@ class KauflandController:
                             "result": message,
                         },
                     )
-                    log(
-                        f"update_price not_found ean={ean} unit_id={unit_id} storefront={storefront}",
-                        save=True,
-                    )
                     bool_list.append(True)
                 else:
                     await channel_layer.group_send(
@@ -659,10 +677,6 @@ class KauflandController:
                             "timestamp": datetime.now().isoformat(),
                             "result": message,
                         },
-                    )
-                    log(
-                        f"update_price failed ean={ean} unit_id={unit_id} storefront={storefront} response={result}",
-                        save=True,
                     )
                     bool_list.append(False)
             return all(bool_list)
@@ -678,7 +692,6 @@ class KauflandController:
                 "result": {"message": "product not found"},
             },
         )
-        log(f"update_price no_unit_ids ean={ean}", save=True)
         return True
 
     async def _delete_product_by_unit_id(

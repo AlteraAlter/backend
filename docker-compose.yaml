@@ -15,7 +15,7 @@ services:
       # Shared directory with host assets/files.
       - /srv/kaufland:/srv/kaufland
     env_file:
-      - .env.docker
+      - .env
     depends_on:
       postgres:
         condition: service_healthy
@@ -37,7 +37,7 @@ services:
     restart: unless-stopped
     container_name: kaufland_postgress
     env_file:
-      - .env.docker
+      - .env
     ports:
       - "5433:5432"
     volumes:

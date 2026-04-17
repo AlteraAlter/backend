@@ -69,3 +69,6 @@ REMOTE_BASE_DIR = {
     "jv": "/var/lib/productbaseapi/data/JV/JV_PRODUCT/JV_NEW/HTML/",
     "xl": "/var/lib/productbaseapi/data/XL/XL_PRODUCT/XL_NEW/HTML/",
 }
+
+CELERY_REDIS_BROKER_DB = int(os.getenv("CELERY_REDIS_DB", default="1"))
+CELERY_REDIS_RESULT_DB = CELERY_REDIS_BROKER_DB + 1

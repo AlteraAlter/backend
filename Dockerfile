@@ -10,11 +10,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Copy dependency file first for better layer caching.
-COPY requirements.txt .
+COPY requirements.docker.txt .
 
 # Install dependencies (uv is used as fast installer frontend).
 RUN pip install uv && \
-    uv pip install --system -r requirements.txt
+    uv pip install --system -r requirements.docker.txt
 
 # Copy application source after deps.
 COPY . .

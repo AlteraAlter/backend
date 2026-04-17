@@ -18,7 +18,8 @@ from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
-from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+from django.views.generic import TemplateView
+from drf_spectacular.views import SpectacularAPIView
 
 # from main_api.views import main_view  # Импортируем main_view из main_api
 
@@ -26,6 +27,12 @@ urlpatterns = [
     # path('', main_view, name='main'),  # Главная страница по корневому пути /
     path('admin/', admin.site.urls),
     path("api/", include("main_api.urls")),
+    path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
+    path(
+        "api/scalar/",
+        TemplateView.as_view(template_name="scalar.html"),
+        name="scalar",
+    ),
 ]
 
 # Добавляем маршруты для статических и медиафайлов (только для разработки)
