@@ -190,3 +190,8 @@ class CombinedUploadSerializer(serializers.Serializer):
             "json_content": file_serializer.validated_data["json_content"],
             "job_id": job_id,
         }
+        
+        
+class RetrieveProductSerializer(serializers.Serializer):
+    ean = serializers.CharField(required=True, allow_blank=False, trim_whitespace=True)
+    controller = serializers.ChoiceField(choices=["jv", "xl"], required=True)

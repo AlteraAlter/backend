@@ -8,10 +8,12 @@ from rest_framework import status
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
+from rest_framework_simplejwt.authentication import JWTStatelessUserAuthentication
 import pandas as pd
 from main_api.serializers import (
     FileUploadSerializer,
     CombinedUploadSerializer,
+    RetrieveProductSerializer,
 )
 from main_api.src.controller.kaufland_controller import KauflandController
 from main_api.src.servises.kaufland_upload_service import KauflandUploadService
@@ -238,6 +240,73 @@ async def _run_aftercool_price_sync_job(
         clear_task_context(task_token)
 
 
+async def _handle_upload_collections_via_json_request(
+    request,
+    serializer_class,
+    username: str | None,
+) -> Response:
+    task_token = set_task_context(None, username)
+    try:
+        log("<------Post method initialized----->")
+        serializer = serializer_class(data=request.data)
+        try:
+            serializer.is_valid(raise_exception=True)
+        except ValidationError as exc:
+            log(f"upload_json validation failed: {exc.detail}", save=True)
+            raise
+
+        controller_name = serializer.validated_data["controller"]
+        mode = serializer.validated_data["mode"]
+        json_content = serializer.validated_data.get("json_content")
+        job_id = serializer.validated_data.get("job_id")
+
+        if json_content is None:
+            return Response(
+                {"error": "invalid json content"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if isinstance(json_content, dict):
+            json_content = [json_content]
+
+        async with aiohttp.ClientSession() as session:
+            controller: KauflandController = KauflandController(session, controller_name)
+            service = KauflandUploadService(controller)
+            if mode == "upload_product":
+                if not job_id:
+                    job_id = uuid4().hex
+                update_task_context(job_id=job_id)
+                result = await service.upload_single(json_content[0], job_id=job_id)
+
+                return Response(
+                    (
+                        {"message": "success", "job_id": job_id}
+                        if result
+                        else {"message": "failed", "job_id": job_id}
+                    ),
+                    status=200 if result else 500,
+                )
+
+            if mode == "upload_collection":
+                log("Massive upload")
+                if not job_id:
+                    job_id = uuid4().hex
+                update_task_context(job_id=job_id)
+                asyncio.create_task(
+                    _run_upload_collection_job(
+                        controller_name, json_content, job_id, username
+                    )
+                )
+                return Response(
+                    {"message": "upload job started", "job_id": job_id},
+                    status=status.HTTP_202_ACCEPTED,
+                )
+
+        return Response({"error": "invalid mode"}, status=status.HTTP_400_BAD_REQUEST)
+    finally:
+        clear_task_context(task_token)
+
+
 class MainOperationsView(APIView):
     permission_classes = [IsAuthenticated]
     serializer_class = FileUploadSerializer
@@ -407,67 +476,30 @@ class UploadCollectionsViaJsonView(APIView):
             if getattr(request.user, "is_authenticated", False)
             else None
         )
-        task_token = set_task_context(None, username)
-        try:
-            log("<------Post method initialized----->")
-            serializer = self.serializer_class(data=request.data)
-            try:
-                serializer.is_valid(raise_exception=True)
-            except ValidationError as exc:
-                log(f"upload_json validation failed: {exc.detail}", save=True)
-                raise
+        return await _handle_upload_collections_via_json_request(
+            request=request,
+            serializer_class=self.serializer_class,
+            username=username,
+        )
 
-            controller_name = serializer.validated_data["controller"]
-            mode = serializer.validated_data["mode"]
-            json_content = serializer.validated_data.get("json_content")
-            job_id = serializer.validated_data.get("job_id")
 
-            if json_content is None:
-                return Response(
-                    {"error": "invalid json content"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
+class UploadCollectionsViaJsonJwtView(APIView):
+    permission_classes = [IsAuthenticated]
+    authentication_classes = [JWTStatelessUserAuthentication]
+    serializer_class = CombinedUploadSerializer
 
-            if isinstance(json_content, dict):
-                json_content = [json_content]
+    async def get(self, request):
+        return Response(
+            {"info": "Kaufland uploader via json (jwt only)"},
+            status=status.HTTP_200_OK,
+        )
 
-            async with aiohttp.ClientSession() as session:
-                controller: KauflandController = KauflandController(
-                    session, controller_name
-                )
-                service = KauflandUploadService(controller)
-                if mode == "upload_product":
-                    if not job_id:
-                        job_id = uuid4().hex
-                    update_task_context(job_id=job_id)
-                    result = await service.upload_single(json_content[0], job_id=job_id)
-
-                    response = Response(
-                        (
-                            {"message": "success", "job_id": job_id}
-                            if result
-                            else {"message": "failed", "job_id": job_id}
-                        ),
-                        status=200 if result else 500,
-                    )
-                    return response
-                if mode == "upload_collection":
-                    log("Massive upload")
-                    if not job_id:
-                        job_id = uuid4().hex
-                    update_task_context(job_id=job_id)
-                    asyncio.create_task(
-                        _run_upload_collection_job(
-                            controller_name, json_content, job_id, username
-                        )
-                    )
-                    return Response(
-                        {"message": "upload job started", "job_id": job_id},
-                        status=status.HTTP_202_ACCEPTED,
-                    )
-            return Response({"error": "invalid mode"}, status=status.HTTP_400_BAD_REQUEST)
-        finally:
-            clear_task_context(task_token)
+    async def post(self, request):
+        return await _handle_upload_collections_via_json_request(
+            request=request,
+            serializer_class=self.serializer_class,
+            username=None,
+        )
 
 
 class ProtectedView(APIView):
@@ -597,3 +629,38 @@ class AftercoolLoginView(APIView):
             status=status.HTTP_202_ACCEPTED,
         )
         
+
+
+class RetreiveProductView(APIView):
+    serializer_class = RetrieveProductSerializer
+    permission_classes = [AllowAny]
+
+    async def get(self, request):
+        serializer = self.serializer_class(data=request.query_params)
+            .is_valid(raise_exception=True)
+
+        ean = serializer.validated_data["ean"]
+        controller = serializer.validated_data["controller"]
+
+        async with aiohttp.ClientSession() as session:
+            kaufland_controller = KauflandController(session, controller)
+            result = await kaufland_controller.get_product_by_ean(ean)
+
+        if not isinstance(result, dict):
+            return Response(
+                {"error": "Unexpected upstream response"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        if result.get("found_count", 0) == 0:
+            return Response(
+                {
+                    "ean": ean,
+                    "controller": controller,
+                    "message": "Product not found",
+                    "results": result.get("results", []),
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        return Response(result, status=status.HTTP_200_OK)

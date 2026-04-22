@@ -6,6 +6,7 @@ import hmac
 import json
 import random
 import asyncio
+from typing import Any
 from uuid import uuid4
 import certifi
 import aiohttp
@@ -69,6 +70,8 @@ try:
 except ValueError:
     _WS_PROGRESS_EVERY = 0
 
+
+EMBEDDED_ENTITIES = ["category", "category_basic", "units"]
 
 class KauflandController:
     """
@@ -177,7 +180,7 @@ class KauflandController:
         return headers
 
     # NOTE: НЕ ТРОГАТЬ!!!
-    async def _universal_request(self, method, url, body=None, params=None):
+    async def _universal_request(self, method, url, body=None, params=None) -> Any:
         """
         Универсальная функция для выполнения реквестов для любых
         методов
@@ -1790,7 +1793,79 @@ class KauflandController:
             )
             return None
 
+    async def get_product_by_ean(self, ean: str):
+        """
+        Получить информацию о товаре по его EAN в читаемом формате:
+        один объект на storefront с product + entities.
+        """
+        embedded_csv = ",".join(EMBEDDED_ENTITIES)
 
+        async def fetch_with_embedded(storefront: str) -> dict[str, Any]:
+            base_url = f"{self.base_api_url}/products/ean/{ean}"
+            url = f"{base_url}?storefront={storefront}&embedded={embedded_csv}"
+            result = await self._universal_request("GET", url)
+
+            if not isinstance(result, dict):
+                return {
+                    "storefront": storefront,
+                    "found": False,
+                    "product": None,
+                    "entities": {},
+                    "error": "invalid_response",
+                }
+
+            if result.get("status") == status.HTTP_404_NOT_FOUND:
+                return {
+                    "storefront": storefront,
+                    "found": False,
+                    "product": None,
+                    "entities": {},
+                    "error": "not_found",
+                }
+
+            data = result.get("data") or {}
+            entities = {entity: data.get(entity) for entity in EMBEDDED_ENTITIES if entity in data}
+
+            # Fallback for APIs that do not return all embedded entities in CSV mode.
+            missing_entities = [entity for entity in EMBEDDED_ENTITIES if entity not in entities]
+            if missing_entities:
+                missing_tasks = []
+                for entity in missing_entities:
+                    entity_url = f"{base_url}?storefront={storefront}&embedded={entity}"
+                    missing_tasks.append(self._universal_request("GET", entity_url))
+                missing_results = await asyncio.gather(*missing_tasks)
+                for entity, entity_resp in zip(missing_entities, missing_results):
+                    if isinstance(entity_resp, dict):
+                        entity_data = (entity_resp.get("data") or {}).get(entity)
+                        if entity_data is not None:
+                            entities[entity] = entity_data
+
+            product_data = dict(data)
+            for entity in EMBEDDED_ENTITIES:
+                product_data.pop(entity, None)
+
+            return {
+                "storefront": storefront,
+                "found": True,
+                "product": product_data,
+                "entities": entities,
+                "error": None,
+            }
+
+        storefront_results = await asyncio.gather(
+            *(fetch_with_embedded(storefront) for storefront in storefronts)
+        )
+
+        found_results = [item for item in storefront_results if item.get("found")]
+        return {
+            "ean": ean,
+            "controller": self.version,
+            "storefront_count": len(storefront_results),
+            "found_count": len(found_results),
+            "results": storefront_results,
+        }
+    
+    
 async def main():
     async with aiohttp.ClientSession() as session:
         cnt = KauflandController(session, version="jv")
