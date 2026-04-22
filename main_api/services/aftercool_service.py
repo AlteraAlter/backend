@@ -91,12 +91,16 @@ class AftercoolService:
                     )
                 session = dict(client.cookies).get("session")
                 if not session:
-                    raise AftercoolAuthError("aftercool auth succeeded but no session cookie")
+                    raise AftercoolAuthError(
+                        "aftercool auth succeeded but no session cookie"
+                    )
                 log("aftercool login completed", save=False, level="debug")
                 return session
         except (httpx.ConnectTimeout, httpx.TimeoutException) as exc:
             log("timeout while logging in to aftercool", save=True, level="error")
-            raise AftercoolTransportError("timeout while logging in to aftercool") from exc
+            raise AftercoolTransportError(
+                "timeout while logging in to aftercool"
+            ) from exc
         except httpx.RequestError as exc:
             log(
                 "failed to connect to aftercool login endpoint",
@@ -114,7 +118,11 @@ class AftercoolService:
         query: AftercoolProductsQuery | None = None,
     ) -> list[dict[str, Any]]:
         params = (query or AftercoolProductsQuery()).as_params()
-        log(f"aftercool products fetch started with params={params}", save=False, level="debug")
+        log(
+            f"aftercool products fetch started with params={params}",
+            save=False,
+            level="debug",
+        )
         try:
             async with httpx.AsyncClient(
                 cookies={"session": session},
@@ -161,7 +169,11 @@ class AftercoolService:
                 "aftercool response has invalid 'items' shape",
                 status_code=502,
             )
-        log(f"aftercool products fetch completed, count={len(items)}", save=False, level="debug")
+        log(
+            f"aftercool products fetch completed, count={len(items)}",
+            save=False,
+            level="debug",
+        )
         return items
 
     async def login_and_get_products(
@@ -219,7 +231,9 @@ class AftercoolService:
 
         return all_items
 
-    def extract_ean_price_pairs(self, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def extract_ean_price_pairs(
+        self, items: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         """
         Возвращает список с нормализованными ean/price из aftercool.
         Для дублей по EAN берется максимальная цена.
@@ -255,8 +269,10 @@ class AftercoolService:
                 return normalized
 
         custom_item_specifics = row.get("CustomItemSpecifics")
-        extracted_from_specifics = AftercoolService._extract_ean_from_custom_item_specifics(
-            custom_item_specifics
+        extracted_from_specifics = (
+            AftercoolService._extract_ean_from_custom_item_specifics(
+                custom_item_specifics
+            )
         )
         if extracted_from_specifics:
             return extracted_from_specifics

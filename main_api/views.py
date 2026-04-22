@@ -109,7 +109,9 @@ async def _run_upload_collection_job(
     try:
         async with JOB_SEMAPHORE:
             async with aiohttp.ClientSession() as session:
-                controller: KauflandController = KauflandController(session, controller_name)
+                controller: KauflandController = KauflandController(
+                    session, controller_name
+                )
                 service = KauflandUploadService(controller)
                 await service.upload_collection(json_content, job_id=job_id)
     except Exception as e:
@@ -154,7 +156,10 @@ async def _run_aftercool_price_sync_job(
                     "xl": KauflandController(session, "xl"),
                 }
                 # Fallback routing for WS send helper; real processing uses both controllers.
-                controller = controllers_by_account.get(controller_name) or controllers_by_account["jv"]
+                controller = (
+                    controllers_by_account.get(controller_name)
+                    or controllers_by_account["jv"]
+                )
                 sync_service = AftercoolPriceSyncService(
                     controller=controller,
                     controllers_by_account=controllers_by_account,
@@ -270,7 +275,9 @@ async def _handle_upload_collections_via_json_request(
             json_content = [json_content]
 
         async with aiohttp.ClientSession() as session:
-            controller: KauflandController = KauflandController(session, controller_name)
+            controller: KauflandController = KauflandController(
+                session, controller_name
+            )
             service = KauflandUploadService(controller)
             if mode == "upload_product":
                 if not job_id:
@@ -391,7 +398,9 @@ class MainOperationsView(APIView):
                         if not job_id:
                             job_id = uuid4().hex
                         update_task_context(job_id=job_id)
-                        asyncio.create_task(_run_checker_job(controller, eans_list, job_id))
+                        asyncio.create_task(
+                            _run_checker_job(controller, eans_list, job_id)
+                        )
                         return Response(
                             {
                                 "message": "checker job started",
@@ -547,7 +556,9 @@ class ProductByEanView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        controller_name = str(request.query_params.get("controller", "jv")).strip().lower()
+        controller_name = (
+            str(request.query_params.get("controller", "jv")).strip().lower()
+        )
         if controller_name not in {"jv", "xl"}:
             return Response(
                 {"error": "controller must be 'jv' or 'xl'"},
@@ -586,16 +597,16 @@ class StopJobView(APIView):
         return Response({"message": "stop requested", "job_id": job_id}, status=200)
 
 
-
 class PriceCheckerView(APIView):
     """
     Вьюха для того чтобы чекать цену. Планируется использовать как бекграунд джоб.
     """
+
     async def post(self, request):
-        #Some logic here that starts job
+        # Some logic here that starts job
         ...
-        
-    
+
+
 class AftercoolLoginView(APIView):
     permission_classes = [AllowAny]
 
@@ -628,7 +639,6 @@ class AftercoolLoginView(APIView):
             },
             status=status.HTTP_202_ACCEPTED,
         )
-        
 
 
 class RetreiveProductView(APIView):
@@ -637,7 +647,7 @@ class RetreiveProductView(APIView):
 
     async def get(self, request):
         serializer = self.serializer_class(data=request.query_params)
-            .is_valid(raise_exception=True)
+        serializer.is_valid(raise_exception=True)
 
         ean = serializer.validated_data["ean"]
         controller = serializer.validated_data["controller"]
@@ -646,21 +656,14 @@ class RetreiveProductView(APIView):
             kaufland_controller = KauflandController(session, controller)
             result = await kaufland_controller.get_product_by_ean(ean)
 
-        if not isinstance(result, dict):
-            return Response(
-                {"error": "Unexpected upstream response"},
-                status=status.HTTP_502_BAD_GATEWAY,
-            )
-
-        if result.get("found_count", 0) == 0:
-            return Response(
-                {
-                    "ean": ean,
-                    "controller": controller,
-                    "message": "Product not found",
-                    "results": result.get("results", []),
-                },
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
         return Response(result, status=status.HTTP_200_OK)
+
+
+class ChangeProductView(APIView):
+
+    async def get(self, request):
+        return Response({"message": "ok"}, status=status.HTTP_200_OK)
+
+    async def post(self, request):
+
+        data = request.data

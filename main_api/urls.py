@@ -11,7 +11,7 @@ from main_api.views import (
     ProductByEanView,
     StopJobView,
     AftercoolLoginView,
-    RetreiveProductView
+    RetreiveProductView,
 )
 from main_api.auth.views import CustomTokenObtainSlidingView
 
@@ -34,8 +34,8 @@ urlpatterns = [
     path("token/", CustomTokenObtainSlidingView.as_view(), name="token_obtain_pair"),
     path("token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
     path("aftercool_login/", AftercoolLoginView.as_view(), name="aftercool_login"),
-    
-    
-    #External API
-    path("products/product/ean/", RetreiveProductView.as_view(), name="retrieve_product"),
+    # External API
+    path(
+        "products/product/ean/", RetreiveProductView.as_view(), name="retrieve_product"
+    ),
 ]

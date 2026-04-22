@@ -8,7 +8,9 @@ class FileUploadSerializer(serializers.Serializer):
     controller = serializers.ChoiceField(choices=["jv", "xl"])
     file = serializers.FileField(required=False, allow_null=True)
     ean = serializers.CharField(required=False, allow_blank=False, trim_whitespace=True)
-    job_id = serializers.CharField(required=False, allow_blank=True, trim_whitespace=True)
+    job_id = serializers.CharField(
+        required=False, allow_blank=True, trim_whitespace=True
+    )
     mode = serializers.ChoiceField(
         choices=["delete", "change_price", "checker", "invalid_items"]
     )
@@ -44,7 +46,6 @@ class FileUploadSerializer(serializers.Serializer):
                 {"file": "File is required for this mode"}
             )
         return attrs
-
 
 
 class ControllerSerializer(serializers.Serializer):
@@ -190,8 +191,8 @@ class CombinedUploadSerializer(serializers.Serializer):
             "json_content": file_serializer.validated_data["json_content"],
             "job_id": job_id,
         }
-        
-        
+
+
 class RetrieveProductSerializer(serializers.Serializer):
     ean = serializers.CharField(required=True, allow_blank=False, trim_whitespace=True)
     controller = serializers.ChoiceField(choices=["jv", "xl"], required=True)

@@ -1,4 +1,6 @@
-﻿import os
+﻿from cmath import pi
+import os
+from pydoc import describe
 import re
 import math
 import time
@@ -6,6 +8,7 @@ import hmac
 import json
 import random
 import asyncio
+from turtle import title
 from typing import Any
 from uuid import uuid4
 import certifi
@@ -62,7 +65,9 @@ _GLOBAL_REQUEST_DELAY_LOCK = asyncio.Lock()
 _GLOBAL_LAST_REQUEST_AT = 0.0
 
 try:
-    _WS_PROGRESS_INTERVAL_SEC = max(0.0, float(os.getenv("WS_PROGRESS_INTERVAL_SEC", "60")))
+    _WS_PROGRESS_INTERVAL_SEC = max(
+        0.0, float(os.getenv("WS_PROGRESS_INTERVAL_SEC", "60"))
+    )
 except ValueError:
     _WS_PROGRESS_INTERVAL_SEC = 60
 try:
@@ -72,6 +77,7 @@ except ValueError:
 
 
 EMBEDDED_ENTITIES = ["category", "category_basic", "units"]
+
 
 class KauflandController:
     """
@@ -358,7 +364,7 @@ class KauflandController:
         """
         if ean in self._ean_cache["product_ids"]:
             return self._ean_cache["product_ids"][ean]
- 
+
         async def fetch_storefront_product_id(storefront):
             log(f"[{ean}] Start of parsing product's product_id")
             url = f"{self.base_api_url}/products/ean/{ean}?storefront={storefront}&embedded=units"
@@ -628,7 +634,11 @@ class KauflandController:
         Update product price by unit_id.
         """
         channel_layer = get_channel_layer()
-        final_res = new_unit_id if new_unit_id is not None else await self._fetch_unit_id_by_ean(ean)
+        final_res = (
+            new_unit_id
+            if new_unit_id is not None
+            else await self._fetch_unit_id_by_ean(ean)
+        )
 
         if final_res:
             bool_list = []
@@ -1088,10 +1098,12 @@ class KauflandController:
             "height": height,
             "length": length,
             "width": width,
-            "material": material if material not in ["Stoff", "Textil"] else "Synthetic",
+            "material": (
+                material if material not in ["Stoff", "Textil"] else "Synthetic"
+            ),
             "material_composition": "No information required",
             "abnehmbarer_bezug": "No",
-            "parts_of_animal_origin": "Yes" if material == "Leder" else "No"
+            "parts_of_animal_origin": "Yes" if material == "Leder" else "No",
         }
 
         for key, value in optional_fields.items():
@@ -1165,7 +1177,9 @@ class KauflandController:
                     )
 
                 missing_storefronts = [
-                    storefront for storefront in storefronts if storefront not in unit_ids
+                    storefront
+                    for storefront in storefronts
+                    if storefront not in unit_ids
                 ]
                 add_result = True
                 if missing_storefronts:
@@ -1637,7 +1651,9 @@ class KauflandController:
                         if isinstance(item, dict):
                             raw_ean = item.get("ean")
                             ean = str(raw_ean).strip() if raw_ean is not None else None
-                        lock_token = await acquire_ean_lock(ean, owner=f"{job_id}:{self.version}")
+                        lock_token = await acquire_ean_lock(
+                            ean, owner=f"{job_id}:{self.version}"
+                        )
                         if ean and not lock_token:
                             await self._emit_ean_status(
                                 job_id,
@@ -1647,11 +1663,18 @@ class KauflandController:
                                 stage="acquire_ean_lock",
                                 message="EAN is already being uploaded by another task",
                             )
-                            log(f"upload skipped locked ean={ean} job_id={job_id}", save=True)
+                            log(
+                                f"upload skipped locked ean={ean} job_id={job_id}",
+                                save=True,
+                            )
                             ok = False
                         else:
                             try:
-                                ok = bool(await self._create_product(item, job_id, self.version))
+                                ok = bool(
+                                    await self._create_product(
+                                        item, job_id, self.version
+                                    )
+                                )
                             finally:
                                 await release_ean_lock(ean, lock_token)
                 except Exception as e:
@@ -1666,7 +1689,9 @@ class KauflandController:
 
         if job_id:
             await register_running_job(job_id)
-        workers = [asyncio.create_task(run_upload_worker()) for _ in range(worker_count)]
+        workers = [
+            asyncio.create_task(run_upload_worker()) for _ in range(worker_count)
+        ]
         try:
             while processed_count < total:
                 if await is_cancelled(job_id):
@@ -1796,76 +1821,40 @@ class KauflandController:
     async def get_product_by_ean(self, ean: str):
         """
         Получить информацию о товаре по его EAN в читаемом формате:
-        один объект на storefront с product + entities.
+        один объект на storefront с объединенным data:
+        main product data + embedded entities.
         """
-        embedded_csv = ",".join(EMBEDDED_ENTITIES)
 
-        async def fetch_with_embedded(storefront: str) -> dict[str, Any]:
-            base_url = f"{self.base_api_url}/products/ean/{ean}"
-            url = f"{base_url}?storefront={storefront}&embedded={embedded_csv}"
-            result = await self._universal_request("GET", url)
-
-            if not isinstance(result, dict):
-                return {
-                    "storefront": storefront,
-                    "found": False,
-                    "product": None,
-                    "entities": {},
-                    "error": "invalid_response",
-                }
-
-            if result.get("status") == status.HTTP_404_NOT_FOUND:
-                return {
-                    "storefront": storefront,
-                    "found": False,
-                    "product": None,
-                    "entities": {},
-                    "error": "not_found",
-                }
-
-            data = result.get("data") or {}
-            entities = {entity: data.get(entity) for entity in EMBEDDED_ENTITIES if entity in data}
-
-            # Fallback for APIs that do not return all embedded entities in CSV mode.
-            missing_entities = [entity for entity in EMBEDDED_ENTITIES if entity not in entities]
-            if missing_entities:
-                missing_tasks = []
-                for entity in missing_entities:
-                    entity_url = f"{base_url}?storefront={storefront}&embedded={entity}"
-                    missing_tasks.append(self._universal_request("GET", entity_url))
-                missing_results = await asyncio.gather(*missing_tasks)
-                for entity, entity_resp in zip(missing_entities, missing_results):
-                    if isinstance(entity_resp, dict):
-                        entity_data = (entity_resp.get("data") or {}).get(entity)
-                        if entity_data is not None:
-                            entities[entity] = entity_data
-
-            product_data = dict(data)
-            for entity in EMBEDDED_ENTITIES:
-                product_data.pop(entity, None)
-
-            return {
-                "storefront": storefront,
-                "found": True,
-                "product": product_data,
-                "entities": entities,
-                "error": None,
-            }
-
-        storefront_results = await asyncio.gather(
-            *(fetch_with_embedded(storefront) for storefront in storefronts)
+        base_url = f"{self.base_api_url}/product-data/{ean}?locale=de-DE"
+        additional_url = (
+            f"{self.base_api_url}/products/ean/{ean}?storefront=de&embedded=units"
         )
 
-        found_results = [item for item in storefront_results if item.get("found")]
-        return {
-            "ean": ean,
-            "controller": self.version,
-            "storefront_count": len(storefront_results),
-            "found_count": len(found_results),
-            "results": storefront_results,
-        }
-    
-    
+        main_data = None
+        additional_data = None
+
+        main_data = await self._universal_request("GET", base_url)
+        additional_data = await self._universal_request("GET", additional_url)
+
+        main_attributes = main_data.get("data").get("attributes")
+
+        units = additional_data.get("data").get("units")
+        prices = map(lambda unit: unit.get("price"), units)
+
+        response_data = {}
+
+        for key, value in main_attributes.items():
+            if not value:
+                response_data[key] = [None]
+            elif isinstance(value, list):
+                response_data[key] = value
+            else:
+                response_data[key] = [value]
+        response_data["price"] = prices
+
+        return {"response_data": response_data}
+
+
 async def main():
     async with aiohttp.ClientSession() as session:
         cnt = KauflandController(session, version="jv")

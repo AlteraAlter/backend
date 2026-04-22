@@ -21,7 +21,7 @@ class AlmatyFormatter(logging.Formatter):
     def formatTime(self, record, datefmt=None):
         tz = ZoneInfo("Asia/Almaty")
         return datetime.now(tz).strftime("%Y-%m-%d %H:%M:%S")
-    
+
     def format(self, record):
         # Если есть кастомный caller, подставляем его вместо funcName
         if hasattr(record, "caller"):
@@ -157,6 +157,7 @@ def clear_task_context(token: contextvars.Token | None = None) -> None:
 
 # ---------------- УДОБНАЯ ФУНКЦИЯ ---------------- #
 
+
 def _coerce_level(level) -> int:
     if isinstance(level, int):
         return level
@@ -175,7 +176,7 @@ def _truncate(message: str) -> str:
     if _log_max_len <= 0:
         return message
     if len(message) > _log_max_len:
-        return message[: _log_max_len] + " ...[truncated]"
+        return message[:_log_max_len] + " ...[truncated]"
     return message
 
 
@@ -216,7 +217,9 @@ def _append_line(path: str, line: str) -> None:
             pass
 
 
-def log(*args, print: bool = True, save: bool = False, level: str | int = "info") -> None:
+def log(
+    *args, print: bool = True, save: bool = False, level: str | int = "info"
+) -> None:
     """
     Логирует сообщение с указанием функции, из которой был вызов.
     По умолчанию логирует в консоль. Если нужно логировать в файл,
@@ -226,7 +229,7 @@ def log(*args, print: bool = True, save: bool = False, level: str | int = "info"
     :param print: Логировать в консоль.
     :param save: Логировать в файл.
     """
-    
+
     # Формируем сообщение
     message = " ".join(str(a) for a in args)
 
@@ -241,9 +244,10 @@ def log(*args, print: bool = True, save: bool = False, level: str | int = "info"
 
     context = _task_context.get()
     if context:
-        message = f"[job_id={context.get('job_id')} user={context.get('user')}] {message}"
+        message = (
+            f"[job_id={context.get('job_id')} user={context.get('user')}] {message}"
+        )
     message = _truncate(message)
-
 
     level_num = _coerce_level(level)
     if print and level_num >= console_handler.level:

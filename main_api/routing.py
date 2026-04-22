@@ -1,5 +1,9 @@
 from django.urls import re_path, path
-from .consumers import UploadProgressConsumer, DeleteProgressConsumer, CheckerProgressConsumer
+from .consumers import (
+    UploadProgressConsumer,
+    DeleteProgressConsumer,
+    CheckerProgressConsumer,
+)
 
 websocket_urlpatterns = [
     path("ws/upload-progress/<str:job_id>/", UploadProgressConsumer.as_asgi()),

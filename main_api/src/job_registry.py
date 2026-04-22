@@ -57,9 +57,7 @@ async def _get_redis():
         async with _redis_lock:
             if _redis_client is None:
                 if _REDIS_URL:
-                    _redis_client = redis.from_url(
-                        _REDIS_URL, decode_responses=True
-                    )
+                    _redis_client = redis.from_url(_REDIS_URL, decode_responses=True)
                 else:
                     _redis_client = redis.Redis(
                         host=_REDIS_HOST,
@@ -147,7 +145,9 @@ async def is_cancelled(job_id: str | None) -> bool:
     return False
 
 
-async def register_running_job(job_id: str | None, task: asyncio.Task | None = None) -> None:
+async def register_running_job(
+    job_id: str | None, task: asyncio.Task | None = None
+) -> None:
     normalized = str(job_id or "").strip()
     if not normalized:
         return
@@ -159,7 +159,9 @@ async def register_running_job(job_id: str | None, task: asyncio.Task | None = N
     await _set_running_flag(normalized)
 
 
-async def unregister_running_job(job_id: str | None, task: asyncio.Task | None = None) -> None:
+async def unregister_running_job(
+    job_id: str | None, task: asyncio.Task | None = None
+) -> None:
     normalized = str(job_id or "").strip()
     if not normalized:
         return

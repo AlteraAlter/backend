@@ -75,7 +75,9 @@ class AftercoolPriceSyncService:
             if getattr(settings, "configured", False)
             else os.getcwd()
         )
-        default_change_log = os.path.join(base_dir, "logs", "aftercool_price_changes.csv")
+        default_change_log = os.path.join(
+            base_dir, "logs", "aftercool_price_changes.csv"
+        )
         self.change_log_path = (
             change_log_path
             or os.getenv("AFTERCOOL_PRICE_CHANGE_LOG_PATH")
@@ -90,11 +92,15 @@ class AftercoolPriceSyncService:
                     normalized_controllers[account_key] = current_controller
 
         if controller is not None:
-            controller_key = str(getattr(controller, "version", "")).strip().lower() or "jv"
+            controller_key = (
+                str(getattr(controller, "version", "")).strip().lower() or "jv"
+            )
             normalized_controllers.setdefault(controller_key, controller)
 
         if not normalized_controllers:
-            raise ValueError("AftercoolPriceSyncService requires at least one controller")
+            raise ValueError(
+                "AftercoolPriceSyncService requires at least one controller"
+            )
 
         self.controllers_by_account = normalized_controllers
 
@@ -183,7 +189,9 @@ class AftercoolPriceSyncService:
                 )
 
                 chunk = await self._with_retries(
-                    operation=lambda: self.aftercool_service.get_products(session_cookie, query=query),
+                    operation=lambda: self.aftercool_service.get_products(
+                        session_cookie, query=query
+                    ),
                     retries=self.fetch_retries,
                     retry_exceptions=(AftercoolTransportError, AftercoolUpstreamError),
                     retry_label=f"aftercool fetch account={account} offset={offset}",
@@ -255,18 +263,20 @@ class AftercoolPriceSyncService:
                         continue
 
                     try:
-                        action, storefront, kaufland_price, action_detail = await self._with_retries(
-                            operation=lambda: self._process_single_pair(
-                                job_id=job_id,
-                                account=account,
-                                controller=controller,
-                                ean=ean,
-                                aftercool_price=aftercool_price,
-                            ),
-                            retries=self.process_retries,
-                            retry_exceptions=(Exception,),
-                            retry_label=f"ean process account={account} ean={ean}",
-                            log_retries=False,
+                        action, storefront, kaufland_price, action_detail = (
+                            await self._with_retries(
+                                operation=lambda: self._process_single_pair(
+                                    job_id=job_id,
+                                    account=account,
+                                    controller=controller,
+                                    ean=ean,
+                                    aftercool_price=aftercool_price,
+                                ),
+                                retries=self.process_retries,
+                                retry_exceptions=(Exception,),
+                                retry_label=f"ean process account={account} ean={ean}",
+                                log_retries=False,
+                            )
                         )
                     except Exception as exc:
                         action = "failed"
@@ -293,15 +303,13 @@ class AftercoolPriceSyncService:
                     if storefront:
                         summary_parts.append(f"storefront={storefront}")
                     if kaufland_price is not None:
-                        summary_parts.append(f"kaufland_price={round(kaufland_price, 2)}")
+                        summary_parts.append(
+                            f"kaufland_price={round(kaufland_price, 2)}"
+                        )
                     summary_parts.append(f"aftercool_price={round(aftercool_price, 2)}")
                     if action == "updated" and kaufland_price is not None:
-                        summary_parts.append(
-                            f"changed_from={round(kaufland_price, 2)}"
-                        )
-                        summary_parts.append(
-                            f"changed_to={round(aftercool_price, 2)}"
-                        )
+                        summary_parts.append(f"changed_from={round(kaufland_price, 2)}")
+                        summary_parts.append(f"changed_to={round(aftercool_price, 2)}")
                     if action_detail:
                         summary_parts.append(f"detail={action_detail}")
                     log(" ".join(summary_parts), save=True, level="info")
@@ -438,7 +446,9 @@ class AftercoolPriceSyncService:
             if not storefront:
                 continue
             target_listing_price = int(
-                await controller._make_price(storefront=storefront, price=aftercool_price)
+                await controller._make_price(
+                    storefront=storefront, price=aftercool_price
+                )
             )
             current_price = current_prices.get(storefront)
             if current_price is None:
@@ -525,9 +535,9 @@ class AftercoolPriceSyncService:
 
         preferred = sorted(
             normalized_items,
-            key=lambda item: 0
-            if str(item.get("storefront") or "").strip().lower() == "de"
-            else 1,
+            key=lambda item: (
+                0 if str(item.get("storefront") or "").strip().lower() == "de" else 1
+            ),
         )
         for item in preferred:
             price = AftercoolPriceSyncService._to_float(item.get("price"))
