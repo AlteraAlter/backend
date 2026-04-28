@@ -667,3 +667,5 @@ class ChangeProductView(APIView):
     async def post(self, request):
 
         data = request.data
+
+        return Response({"received_data": data}, status=status.HTTP_200_OK)

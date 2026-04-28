@@ -1,7 +1,5 @@
 import asyncio
 import os
-import time
-import uuid
 from contextlib import suppress
 
 try:
@@ -22,7 +20,6 @@ _running_jobs: dict[str, asyncio.Task] = {}
 _lock = asyncio.Lock()
 _redis_lock = asyncio.Lock()
 _redis_client = None
-_ean_locks: dict[str, str] = {}
 
 _REDIS_URL = os.getenv("JOB_REDIS_URL") or os.getenv("REDIS_URL") or ""
 _REDIS_HOST = os.getenv("REDIS_HOST", "redis")
@@ -32,9 +29,6 @@ _REDIS_PASSWORD = os.getenv("REDIS_PASSWORD") or None
 _REDIS_PREFIX = os.getenv("JOB_REDIS_PREFIX", "kaufland:jobs")
 _CANCEL_TTL = _env_int("JOB_CANCEL_TTL_SECONDS", 60 * 60 * 24)
 _RUNNING_TTL = _env_int("JOB_RUNNING_TTL_SECONDS", 60 * 60 * 24)
-_EAN_LOCK_TTL = _env_int("EAN_LOCK_TTL_SECONDS", 60 * 60)
-_EAN_LOCK_WAIT_MS = _env_int("EAN_LOCK_WAIT_MS", 1500)
-_EAN_LOCK_RETRY_MS = _env_int("EAN_LOCK_RETRY_MS", 120)
 
 
 def _cancel_key(job_id: str) -> str:
@@ -43,10 +37,6 @@ def _cancel_key(job_id: str) -> str:
 
 def _running_key(job_id: str) -> str:
     return f"{_REDIS_PREFIX}:running:{job_id}"
-
-
-def _ean_lock_key(ean: str) -> str:
-    return f"{_REDIS_PREFIX}:ean_lock:{ean}"
 
 
 async def _get_redis():
@@ -171,54 +161,3 @@ async def unregister_running_job(
         if existing is not None and (current is None or existing is current):
             _running_jobs.pop(normalized, None)
     await _clear_running_flag(normalized)
-
-
-async def acquire_ean_lock(ean: str | None, owner: str | None = None) -> str | None:
-    normalized_ean = str(ean or "").strip()
-    if not normalized_ean:
-        return None
-
-    token = str(owner or uuid.uuid4())
-    deadline = time.monotonic() + max(0, _EAN_LOCK_WAIT_MS) / 1000
-    retry_sleep = max(0.01, _EAN_LOCK_RETRY_MS / 1000)
-    lock_key = _ean_lock_key(normalized_ean)
-
-    while True:
-        client = await _get_redis()
-        if client is not None:
-            try:
-                acquired = await client.set(lock_key, token, nx=True, ex=_EAN_LOCK_TTL)
-            except Exception:
-                acquired = False
-            if acquired:
-                return token
-        else:
-            async with _lock:
-                current_owner = _ean_locks.get(normalized_ean)
-                if current_owner is None:
-                    _ean_locks[normalized_ean] = token
-                    return token
-
-        if time.monotonic() >= deadline:
-            return None
-        await asyncio.sleep(retry_sleep)
-
-
-async def release_ean_lock(ean: str | None, token: str | None) -> None:
-    normalized_ean = str(ean or "").strip()
-    lock_token = str(token or "").strip()
-    if not normalized_ean or not lock_token:
-        return
-
-    client = await _get_redis()
-    if client is not None:
-        with suppress(Exception):
-            current = await client.get(_ean_lock_key(normalized_ean))
-            if current == lock_token:
-                await client.delete(_ean_lock_key(normalized_ean))
-        return
-
-    async with _lock:
-        current_owner = _ean_locks.get(normalized_ean)
-        if current_owner == lock_token:
-            _ean_locks.pop(normalized_ean, None)

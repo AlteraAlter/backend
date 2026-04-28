@@ -19,7 +19,7 @@ class LocalImageStorage(ImageStorage):
     def _public_url_for_filename(self, filename: str) -> str:
         return f"{self.public_base_url}{self.url_prefix}/{filename}"
 
-    async def upload(self, local_path: str) -> str:
+    def upload(self, local_path: str) -> str:
         filename = os.path.basename(local_path)
         target_path = os.path.join(self.base_dir, filename)
 

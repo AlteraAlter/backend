@@ -8,7 +8,6 @@ import time
 import random
 from urllib.parse import urlparse
 from PIL import Image
-from main_api.src.logger import log
 
 # --- CONFIG ---
 MIN_WIDTH = 2098
@@ -148,8 +147,7 @@ async def download_and_process_image(
                         clean_name,
                         ext,
                     )
-                except Exception as e:
-                    log(f"[IMG] {url} processing error: {e}", save=True)
+                except Exception:
                     return None
 
                 filename = f"{uuid.uuid4().hex}_{clean_name}"
@@ -158,12 +156,9 @@ async def download_and_process_image(
                 async with aiofiles.open(path, "wb") as f:
                     await f.write(processed_bytes)
 
-                log("<======Images downloaded successfully======>")
-
                 return path
 
-            except Exception as e:
-                log(f"[IMG] {url} error ({attempt}/{MAX_RETRIES}): {e}", save=True)
+            except Exception:
                 if attempt == MAX_RETRIES:
                     return None
                 await asyncio.sleep((2**attempt) + random.uniform(0.5, 2))

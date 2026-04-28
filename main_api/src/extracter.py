@@ -154,11 +154,23 @@ async def adapt_html_description(
     webtag = get_description_from_remote_server(
         ean=ean, ssh_client=ssh_client, controller=controller
     )
-
     # Добавляем служебные блоки (описание)
     new_webtag = add_extra_fields_webtag(description=description, webtag=webtag)
 
     return new_webtag
+
+
+async def adapt_html_description_v2(html: str, description: str):
+    """
+    Новая версия для подготовки финального HTML-описвния товара.
+    
+    Старая версия читала с нашего сервера (которая сейчас не робит).
+    Поэтому надо передавать уже спаршенный HTML из афтеркула от Равиля. 
+    """
+
+    webtag = add_extra_fields_webtag(description=description, webtag=html)
+    return webtag
+    
 
 
 def get_description_from_remote_server(

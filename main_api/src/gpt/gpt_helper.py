@@ -1,5 +1,5 @@
 import asyncio
-
+import json
 from openai import OpenAI
 from config import GPT_API_KEY
 
@@ -102,8 +102,6 @@ async def generate_seo(article, size=None, color=None, material=None):
 
     # Попытка безопасно распарсить JSON-список
     try:
-        import json
-
         seo_keywords = json.loads(seo_text)
         if isinstance(seo_keywords, list) and len(seo_keywords) == 7:
             return seo_keywords

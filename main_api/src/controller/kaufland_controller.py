@@ -3,6 +3,7 @@ import os
 from pydoc import describe
 import re
 import math
+from sqlite3 import adapt
 import time
 import hmac
 import json
@@ -18,6 +19,7 @@ from datetime import datetime
 from aiohttp import ClientError
 from django.conf import settings
 from channels.layers import get_channel_layer
+from httpx import Auth
 from numpy import int32
 from config import (
     controllers_base,
@@ -38,14 +40,14 @@ from main_api.src.job_registry import (
     clear_cancel,
     register_running_job,
     unregister_running_job,
-    acquire_ean_lock,
-    release_ean_lock,
 )
+from main_api.auth.aftercool_auth_servise import AftercoolAuthService
+from main_api.auth.aftercool_product_retrieve import AftercoolProductRetrieveService
 from main_api.src.ssh_client import SSHFileClient
-from main_api.src.extracter import adapt_html_description
 from main_api.src.servises.pic_pipline import process_pics
-from main_api.src.utils.timer import log_time
 from main_api.src.gpt.gpt_helper import generate_description, generate_seo
+from main_api.src.extracter import adapt_html_description, adapt_html_description_v2
+from main_api.src.utils.timer import log_time
 from aiohttp import ClientSession
 from rest_framework import status
 
@@ -105,6 +107,8 @@ class KauflandController:
             "product_ids": {},
             "main_data": {},
         }
+        
+        self.aftercool_base_url = "https://aftercool.de"
 
     @staticmethod
     def _should_emit_progress(
@@ -259,7 +263,22 @@ class KauflandController:
                                 "status": response.status,
                                 "response": response,
                             }
+                            
+    async def _get_session(self) -> str | None: 
+        aftercool = AftercoolAuthService(self.aftercool_base_url, username="Miras", password="Miras112112")
+        auth = await aftercool.authenticate()
 
+        if auth.get("success"):
+            session_cookie = auth.get("session")
+            return session_cookie
+        else:
+            return None
+        
+    async def _get_product(self, product_id: str, session_cookie: str):
+        aftercoool = AftercoolProductRetrieveService(self.aftercool_base_url, session_cookie)
+        product = await aftercoool.get_product(product_id)
+        return product
+            
     @staticmethod
     async def get_exchange_rate(currency: str = "PLN") -> float:
         """
@@ -405,8 +424,6 @@ class KauflandController:
                 "id_offer": f"{ean}",
                 "condition": "NEW",
             }
-
-            log(f"[{ean}] <====Creating an offer====>")
 
             result = await self._universal_request("POST", url, body=body)
             if not isinstance(result, dict):
@@ -872,79 +889,29 @@ class KauflandController:
         """
         return await self._create_product(item, job_id=job_id)
 
-    async def _create_product(self, elem, job_id=None, controller=None):
+    async def _create_product(self, elem: dict, job_id=None, controller=None):
         """
         Функция для создания продукта приходит elem: dict
         """
         if await is_cancelled(job_id):
             return False
 
-        if not isinstance(elem, dict):
-            await self._emit_ean_status(
-                job_id,
-                "error",
-                None,
-                self._build_item_payload(None),
-                stage="validation",
-                message="Invalid item payload type",
-                detail=f"type={type(elem).__name__}",
-            )
-            return False
-
-        item_payload = self._build_item_payload(elem)
         ean = elem.get("ean")
 
-        log(f"[{ean}] Create product started")
-        await self._emit_progress_event(
-            job_id,
-            "ean_started",
-            payload={"status": "running", "ean": ean, "item": item_payload},
-        )
-
-        if not elem.get("ean"):
+        if not ean:
             log(f"ERROR WITH EAN: elem: {elem}", save=True)
-            await self._emit_ean_status(
-                job_id,
-                "error",
-                ean,
-                item_payload,
-                stage="validation",
-                message="Missing EAN",
-            )
             return False
+
         elif not elem.get("article"):
             log(f"ERROR WITH ARTICLE: elem: {elem}", save=True)
-            await self._emit_ean_status(
-                job_id,
-                "error",
-                ean,
-                item_payload,
-                stage="validation",
-                message="Missing article",
-            )
             return False
+
         elif elem.get("price", 0) < 30:
             log(f"ERROR WITH PRICE: elem: {elem}", save=True)
-            await self._emit_ean_status(
-                job_id,
-                "error",
-                ean,
-                item_payload,
-                stage="validation",
-                message="Price below minimum",
-                detail=str(elem.get("price")),
-            )
             return False
+
         elif not elem.get("pic_main"):
             log(f"ERROR WITH PIC: elem: {elem}", save=True)
-            await self._emit_ean_status(
-                job_id,
-                "error",
-                ean,
-                item_payload,
-                stage="validation",
-                message="Missing main picture",
-            )
             return False
 
         article = elem["article"]
@@ -957,7 +924,7 @@ class KauflandController:
             if len(elem["pics"]) > 0 and elem["pics"][0]
             else [elem["pic_main"]]
         )
-        fabric = elem["fabric"]
+        fabric = elem["fabric"] if elem.get("fabric") else None
 
         if isinstance(material, list):
             material = ", ".join(material)
@@ -974,30 +941,14 @@ class KauflandController:
 
         ean = elem["ean"]
 
-        await self._emit_stage(
-            job_id,
-            ean,
-            item_payload,
-            "generate_description_and_pics",
-        )
-        log(f"[{ean}] Generate description and pics tasks gather")
         description_task = generate_description(article, size, color, material)
-        log(f"Image path <======={total}=======>")
+
         pics_task = process_pics(total)
 
         try:
             with log_time(f"[{ean}] generate desc + process img total"):
                 description, pics = await asyncio.gather(description_task, pics_task)
         except Exception as e:
-            await self._emit_ean_status(
-                job_id,
-                "error",
-                ean,
-                item_payload,
-                stage="generate_description_and_pics",
-                message="Failed to generate description or process pictures",
-                detail=str(e),
-            )
             return False
 
         height = elem["height"]
@@ -1005,35 +956,42 @@ class KauflandController:
         width = elem["width"]
 
         # Получаем SSH клиент
-        with log_time("Connection to ssh"):
-            ssh_client = self._get_ssh_client()
+        # with log_time("Connection to ssh"):
+        #     ssh_client = self._get_ssh_client()
 
-        # Run independent stage calls in parallel to reduce per-EAN latency.
+        # # Run independent stage calls in parallel to reduce per-EAN latency.
         seo_task = asyncio.create_task(
             generate_seo(article=article, size=size, color=color, material=material)
         )
-        await self._emit_stage(job_id, ean, item_payload, "adapt_html_description")
-        await self._emit_stage(job_id, ean, item_payload, "category_selector")
-        adapt_task = asyncio.create_task(
-            adapt_html_description(ean, description, ssh_client, controller)
-        )
+        # adapt_task = asyncio.create_task(
+            # adapt_html_description(ean, description, ssh_client, controller)
+        # )
+        adapt_task = None
+        if elem.get("I_stammartikel"):
+            url = f"{self.aftercool_base_url}/api/products/"
+            session = await self._get_session()
+            
+            if session is None:
+                return False
+            
+            response = await self._get_product(product_id=elem["I_stammartikel"], session_cookie=session)
+            html = response.get("items", [])[0].get("row").get("Beschreibung")
+            adapt_task = asyncio.create_task(
+                adapt_html_description_v2(html=html, description=description)
+            )
+            
+            
         category_task = asyncio.create_task(
             self._category_selector(article, price, ean, description)
         )
-
-        adapt_result, category_result = await asyncio.gather(
-            adapt_task, category_task, return_exceptions=True
-        )
-        if isinstance(adapt_result, Exception):
-            await self._emit_stage(
-                job_id,
-                ean,
-                item_payload,
-                "adapt_html_description",
-                status="warning",
-                message="HTML description adaptation failed, using fallback",
-                extra={"detail": str(adapt_result)},
+        if adapt_task:
+            adapt_result, category_result = await asyncio.gather(
+                adapt_task, category_task, return_exceptions=True
             )
+        else:
+            adapt_result = description
+            category_result = await category_task
+        if isinstance(adapt_result, Exception):
             log(
                 f"HTML description adaptation failed for EAN {ean}: {adapt_result}",
                 save=True,
@@ -1045,32 +1003,12 @@ class KauflandController:
         if isinstance(category_result, Exception):
             if not seo_task.done():
                 seo_task.cancel()
-            await self._emit_ean_status(
-                job_id,
-                "error",
-                ean,
-                item_payload,
-                stage="category_selector",
-                message="Category selector failed",
-                detail=str(category_result),
-            )
             return False
-        category_id, category_name = category_result
-
-        log(f"CATEGORIES: {category_id}, NAME: {category_name}")
+        
+        category_id, category_name = category_result        
 
         if category_id is None:
-            if not seo_task.done():
-                seo_task.cancel()
             log(f"ERROR WITH CATEGORY ID IS NONE: EAN: {ean}", save=True)
-            await self._emit_ean_status(
-                job_id,
-                "error",
-                ean,
-                item_payload,
-                stage="category_selector",
-                message="Category selector returned empty category",
-            )
             return False
 
         try:
@@ -1121,60 +1059,35 @@ class KauflandController:
 
         url = f"{self.base_api_url}/product-data?locale=de-DE"
 
-        await self._emit_stage(job_id, ean, item_payload, "create_product_body")
+        normalized_item = self._build_item_payload(elem)
+        log(
+            f"normalized_product_json {json.dumps(normalized_item, ensure_ascii=False)}",
+            save=True,
+        )
+        log(
+            f"request_body {json.dumps(json_body, ensure_ascii=False)}",
+            save=True,
+        )
+
         try:
-            log(f"Sending request with body: {json_body}")
-            with log_time(f"API request with method PUT on url {url}"):
-                result = await self._universal_request("PUT", url, json_body)
+            result = await self._universal_request("PUT", url, json_body)
+
         except Exception as e:
-            await self._emit_ean_status(
-                job_id,
-                "error",
-                ean,
-                item_payload,
-                stage="create_product_body",
-                message="Create product body request failed",
-                detail=str(e),
-            )
             return False
 
         if not isinstance(result, dict):
-            await self._emit_ean_status(
-                job_id,
-                "error",
-                ean,
-                item_payload,
-                stage="create_product_body",
-                message="Unexpected create product response type",
-                detail=f"type={type(result).__name__}",
-            )
             return False
-        log(f"[{ean}] The result of API request: {result}")
 
         if result.get("data") == "Content created or replaced":
             try:
-                await self._emit_stage(job_id, ean, item_payload, "fetch_unit_id")
-                with log_time("Unit fetch request"):
-                    unit_ids = await self._fetch_unit_id_by_ean(ean)
+                unit_ids = await self._fetch_unit_id_by_ean(ean)
             except Exception as e:
-                await self._emit_ean_status(
-                    job_id,
-                    "error",
-                    ean,
-                    item_payload,
-                    stage="fetch_unit_id",
-                    message="Failed to fetch unit_id",
-                    detail=str(e),
-                )
                 return False
 
             if unit_ids:
-                await self._emit_stage(job_id, ean, item_payload, "update_price")
-
-                with log_time(f"[{ean}] update price"):
-                    update_result = await self._update_price_by_unit_id(
-                        ean, price, unit_ids
-                    )
+                update_result = await self._update_price_by_unit_id(
+                    ean, price, unit_ids
+                )
 
                 missing_storefronts = [
                     storefront
@@ -1183,80 +1096,17 @@ class KauflandController:
                 ]
                 add_result = True
                 if missing_storefronts:
-                    await self._emit_stage(job_id, ean, item_payload, "add_unit")
                     add_result = await self._add_unit_id(
                         ean, price, delivery, target_storefronts=missing_storefronts
                     )
 
                 overall_result = update_result and add_result
-                status_stage = "add_unit" if missing_storefronts else "update_price"
-                if overall_result:
-                    message = (
-                        "Price updated"
-                        if not missing_storefronts
-                        else "Price updated, missing units created"
-                    )
-                    await self._emit_ean_status(
-                        job_id,
-                        "success",
-                        ean,
-                        item_payload,
-                        stage=status_stage,
-                        message=message,
-                    )
-                else:
-                    if not update_result and not add_result:
-                        message = "Price update and missing unit creation failed"
-                    elif not update_result:
-                        message = (
-                            "Price update failed; missing units created"
-                            if add_result
-                            else "Price update failed"
-                        )
-                    else:
-                        message = "Missing unit creation failed"
-                    await self._emit_ean_status(
-                        job_id,
-                        "error",
-                        ean,
-                        item_payload,
-                        stage=status_stage,
-                        message=message,
-                    )
                 return overall_result
             else:
-                await self._emit_stage(job_id, ean, item_payload, "add_unit")
                 result = await self._add_unit_id(ean, price, delivery)
-                if result:
-                    await self._emit_ean_status(
-                        job_id,
-                        "success",
-                        ean,
-                        item_payload,
-                        stage="add_unit",
-                        message="Product created",
-                    )
-                else:
-                    await self._emit_ean_status(
-                        job_id,
-                        "error",
-                        ean,
-                        item_payload,
-                        stage="add_unit",
-                        message="Failed to create product",
-                    )
                 return result
         else:
             log(f"ERROR WITH CREATING PRODUCT BODY: {result} elem: {elem}", save=True)
-            await self._emit_ean_status(
-                job_id,
-                "error",
-                ean,
-                item_payload,
-                stage="create_product_body",
-                message="Failed to create product body",
-                detail=json.dumps(result, ensure_ascii=False),
-            )
             return False
 
     async def delete_all_products(self, eans, job_id: str | None = None):
@@ -1609,17 +1459,6 @@ class KauflandController:
         await clear_cancel(job_id)
 
         total = len(data)
-        await self._emit_progress_event(
-            job_id,
-            "job_started",
-            payload={
-                "total": total,
-                "controller": self.version,
-                "skipped": skipped_count,
-                "skipped_invalid": removed_invalid_items,
-                "skipped_duplicates": removed_duplicates,
-            },
-        )
 
         success_count = 0
         error_count = 0
@@ -1651,32 +1490,9 @@ class KauflandController:
                         if isinstance(item, dict):
                             raw_ean = item.get("ean")
                             ean = str(raw_ean).strip() if raw_ean is not None else None
-                        lock_token = await acquire_ean_lock(
-                            ean, owner=f"{job_id}:{self.version}"
+                        ok = bool(
+                            await self._create_product(item, job_id, self.version)
                         )
-                        if ean and not lock_token:
-                            await self._emit_ean_status(
-                                job_id,
-                                "error",
-                                ean,
-                                self._build_item_payload(item),
-                                stage="acquire_ean_lock",
-                                message="EAN is already being uploaded by another task",
-                            )
-                            log(
-                                f"upload skipped locked ean={ean} job_id={job_id}",
-                                save=True,
-                            )
-                            ok = False
-                        else:
-                            try:
-                                ok = bool(
-                                    await self._create_product(
-                                        item, job_id, self.version
-                                    )
-                                )
-                            finally:
-                                await release_ean_lock(ean, lock_token)
                 except Exception as e:
                     log(
                         f"upload unexpected error ean={ean} error={e}",
@@ -1749,18 +1565,6 @@ class KauflandController:
                 worker.cancel()
             if workers:
                 await asyncio.gather(*workers, return_exceptions=True)
-            await self._emit_progress_event(
-                job_id,
-                "job_failed",
-                payload={
-                    "total": total,
-                    "processed": processed_count,
-                    "success": success_count,
-                    "error": error_count,
-                    "failed_eans": failed_eans,
-                },
-                info="stopped",
-            )
             return False
         finally:
             if job_id:
@@ -1783,39 +1587,9 @@ class KauflandController:
             )
             return True
         elif any(result_list) and not all(result_list):  # Частично успешно
-            await self._emit_progress_event(
-                job_id,
-                "job_completed",
-                payload={
-                    "status": "partial",
-                    "total": total,
-                    "processed": processed_count,
-                    "success": success_count,
-                    "error": error_count,
-                    "skipped": skipped_count,
-                    "skipped_invalid": removed_invalid_items,
-                    "skipped_duplicates": removed_duplicates,
-                    "failed_eans": failed_eans,
-                },
-            )
             return False
 
         elif not any(result_list):  # Все неуспешно
-            await self._emit_progress_event(
-                job_id,
-                "job_completed",
-                payload={
-                    "status": "failed",
-                    "total": total,
-                    "processed": processed_count,
-                    "success": success_count,
-                    "error": error_count,
-                    "skipped": skipped_count,
-                    "skipped_invalid": removed_invalid_items,
-                    "skipped_duplicates": removed_duplicates,
-                    "failed_eans": failed_eans,
-                },
-            )
             return None
 
     async def get_product_by_ean(self, ean: str):

@@ -1,6 +1,6 @@
 from .json_mapper import map_json_item
 from main_api.src.controller.kaufland_controller import KauflandController
-
+import json
 
 class KauflandUploadService:
     def __init__(self, controller):

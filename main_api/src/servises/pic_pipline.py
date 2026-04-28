@@ -80,7 +80,7 @@ async def process_pics(pics: list[str]) -> list[str]:
         async def upload_worker(local_path: str) -> None:
             async with upload_sem:
                 try:
-                    remote_url = await storage.upload(local_path)
+                    remote_url = storage.upload(local_path)
                     if isinstance(remote_url, str):
                         uploaded_urls.append(remote_url)
                 except Exception as e:
@@ -95,15 +95,12 @@ async def process_pics(pics: list[str]) -> list[str]:
         for finished in asyncio.as_completed(download_tasks):
             try:
                 local_path = await finished
-            except Exception as e:
-                log(f"Download task failed: {e}", save=True)
+            except Exception:
                 continue
-            log(f"DEBUG: local_path = {local_path}")
             if local_path and os.path.exists(local_path):
                 upload_tasks.append(asyncio.create_task(upload_worker(local_path)))
 
         if not upload_tasks:
-            log("No valid images downloaded", save=True)
             return []
 
         # 3 Wait for all uploads

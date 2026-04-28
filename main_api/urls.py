@@ -12,6 +12,7 @@ from main_api.views import (
     StopJobView,
     AftercoolLoginView,
     RetreiveProductView,
+    ChangeProductView,
 )
 from main_api.auth.views import CustomTokenObtainSlidingView
 
@@ -38,4 +39,6 @@ urlpatterns = [
     path(
         "products/product/ean/", RetreiveProductView.as_view(), name="retrieve_product"
     ),
+    path("products/ean/change/", ChangeProductView.as_view(), name="change_product"),
+    # path("fabrics/", RetreiveProductView.as_view(), name="retrieve_fabric"),
 ]
