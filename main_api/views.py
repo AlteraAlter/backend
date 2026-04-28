@@ -17,12 +17,7 @@ from main_api.serializers import (
 )
 from main_api.src.controller.kaufland_controller import KauflandController
 from main_api.src.servises.kaufland_upload_service import KauflandUploadService
-from main_api.src.logger import (
-    log,
-    set_task_context,
-    clear_task_context,
-    update_task_context,
-)
+from main_api.src.logger import log
 from main_api.src.job_registry import (
     cancel_job,
     clear_cancel,
@@ -103,9 +98,7 @@ async def _run_upload_collection_job(
     controller_name: str,
     json_content: list[dict],
     job_id: str,
-    username: str | None,
 ) -> None:
-    task_token = set_task_context(job_id, username)
     try:
         async with JOB_SEMAPHORE:
             async with aiohttp.ClientSession() as session:
@@ -120,8 +113,6 @@ async def _run_upload_collection_job(
             save=True,
             level="error",
         )
-    finally:
-        clear_task_context(task_token)
 
 
 async def _send_aftercool_sync_progress(
@@ -147,102 +138,98 @@ async def _run_aftercool_price_sync_job(
     job_id: str,
     username: str | None,
 ) -> None:
-    task_token = set_task_context(job_id, username)
-    try:
-        async with JOB_SEMAPHORE:
-            async with aiohttp.ClientSession() as session:
-                controllers_by_account = {
-                    "jv": KauflandController(session, "jv"),
-                    "xl": KauflandController(session, "xl"),
-                }
-                # Fallback routing for WS send helper; real processing uses both controllers.
-                controller = (
-                    controllers_by_account.get(controller_name)
-                    or controllers_by_account["jv"]
+    async with JOB_SEMAPHORE:
+        async with aiohttp.ClientSession() as session:
+            controllers_by_account = {
+                "jv": KauflandController(session, "jv"),
+                "xl": KauflandController(session, "xl"),
+            }
+            # Fallback routing for WS send helper; real processing uses both controllers.
+            controller = (
+                controllers_by_account.get(controller_name)
+                or controllers_by_account["jv"]
+            )
+            sync_service = AftercoolPriceSyncService(
+                controller=controller,
+                controllers_by_account=controllers_by_account,
+            )
+
+            async def progress_sender(
+                event: str,
+                payload: dict | None = None,
+                info: str | None = None,
+            ) -> None:
+                await _send_aftercool_sync_progress(
+                    controller,
+                    job_id,
+                    event,
+                    payload=payload,
+                    info=info,
                 )
-                sync_service = AftercoolPriceSyncService(
-                    controller=controller,
-                    controllers_by_account=controllers_by_account,
+
+            async def cancelled() -> bool:
+                return await is_cancelled(job_id)
+
+            await clear_cancel(job_id)
+            await register_running_job(job_id)
+            try:
+                await sync_service.run(
+                    job_id=job_id,
+                    progress_sender=progress_sender,
+                    is_cancelled=cancelled,
                 )
-
-                async def progress_sender(
-                    event: str,
-                    payload: dict | None = None,
-                    info: str | None = None,
-                ) -> None:
-                    await _send_aftercool_sync_progress(
-                        controller,
-                        job_id,
-                        event,
-                        payload=payload,
-                        info=info,
-                    )
-
-                async def cancelled() -> bool:
-                    return await is_cancelled(job_id)
-
-                await clear_cancel(job_id)
-                await register_running_job(job_id)
-                try:
-                    await sync_service.run(
-                        job_id=job_id,
-                        progress_sender=progress_sender,
-                        is_cancelled=cancelled,
-                    )
-                except (
-                    AftercoolAuthError,
-                    AftercoolTransportError,
-                    AftercoolUpstreamError,
-                ) as exc:
-                    await _send_aftercool_sync_progress(
-                        controller,
-                        job_id,
-                        "job_failed",
-                        payload={
-                            "total": 0,
-                            "processed": 0,
-                            "success": 0,
-                            "failed": 1,
-                            "error": 1,
-                            "updated": 0,
-                            "skipped": 0,
-                            "not_found": 0,
-                            "failed_eans": [],
-                        },
-                        info=str(exc),
-                    )
-                    log(
-                        f"aftercool price sync failed job_id={job_id} controller={controller_name} error={exc}",
-                        save=True,
-                        level="error",
-                    )
-                except Exception as exc:
-                    await _send_aftercool_sync_progress(
-                        controller,
-                        job_id,
-                        "job_failed",
-                        payload={
-                            "total": 0,
-                            "processed": 0,
-                            "success": 0,
-                            "failed": 1,
-                            "error": 1,
-                            "updated": 0,
-                            "skipped": 0,
-                            "not_found": 0,
-                            "failed_eans": [],
-                        },
-                        info="unexpected error",
-                    )
-                    log(
-                        f"aftercool price sync unexpected failure job_id={job_id} controller={controller_name} error={exc}",
-                        save=True,
-                        level="error",
-                    )
-                finally:
-                    await unregister_running_job(job_id)
-    finally:
-        clear_task_context(task_token)
+            except (
+                AftercoolAuthError,
+                AftercoolTransportError,
+                AftercoolUpstreamError,
+            ) as exc:
+                await _send_aftercool_sync_progress(
+                    controller,
+                    job_id,
+                    "job_failed",
+                    payload={
+                        "total": 0,
+                        "processed": 0,
+                        "success": 0,
+                        "failed": 1,
+                        "error": 1,
+                        "updated": 0,
+                        "skipped": 0,
+                        "not_found": 0,
+                        "failed_eans": [],
+                    },
+                    info=str(exc),
+                )
+                log(
+                    f"aftercool price sync failed job_id={job_id} controller={controller_name} error={exc}",
+                    save=True,
+                    level="error",
+                )
+            except Exception as exc:
+                await _send_aftercool_sync_progress(
+                    controller,
+                    job_id,
+                    "job_failed",
+                    payload={
+                        "total": 0,
+                        "processed": 0,
+                        "success": 0,
+                        "failed": 1,
+                        "error": 1,
+                        "updated": 0,
+                        "skipped": 0,
+                        "not_found": 0,
+                        "failed_eans": [],
+                    },
+                    info="unexpected error",
+                )
+                log(
+                    f"aftercool price sync unexpected failure job_id={job_id} controller={controller_name} error={exc}",
+                    save=True,
+                    level="error",
+                )
+            finally:
+                await unregister_running_job(job_id)
 
 
 async def _handle_upload_collections_via_json_request(
@@ -250,68 +237,62 @@ async def _handle_upload_collections_via_json_request(
     serializer_class,
     username: str | None,
 ) -> Response:
-    task_token = set_task_context(None, username)
+    log("<------Post method initialized----->")
+    serializer = serializer_class(data=request.data)
     try:
-        log("<------Post method initialized----->")
-        serializer = serializer_class(data=request.data)
-        try:
-            serializer.is_valid(raise_exception=True)
-        except ValidationError as exc:
-            log(f"upload_json validation failed: {exc.detail}", save=True)
-            raise
+        serializer.is_valid(raise_exception=True)
+    except ValidationError as exc:
+        log(f"upload_json validation failed: {exc.detail}", save=True)
+        raise
 
-        controller_name = serializer.validated_data["controller"]
-        mode = serializer.validated_data["mode"]
-        json_content = serializer.validated_data.get("json_content")
-        job_id = serializer.validated_data.get("job_id")
+    controller_name = serializer.validated_data["controller"]
+    mode = serializer.validated_data["mode"]
+    json_content = serializer.validated_data.get("json_content")
+    job_id = serializer.validated_data.get("job_id")
 
-        if json_content is None:
+    if json_content is None:
+        return Response(
+            {"error": "invalid json content"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if isinstance(json_content, dict):
+        json_content = [json_content]
+
+    async with aiohttp.ClientSession() as session:
+        controller: KauflandController = KauflandController(
+            session, controller_name
+        )
+        service = KauflandUploadService(controller)
+        if mode == "upload_product":
+            if not job_id:
+                job_id = uuid4().hex
+            result = await service.upload_single(json_content[0], job_id=job_id)
+
             return Response(
-                {"error": "invalid json content"},
-                status=status.HTTP_400_BAD_REQUEST,
+                (
+                    {"message": "success", "job_id": job_id}
+                    if result
+                    else {"message": "failed", "job_id": job_id}
+                ),
+                status=200 if result else 500,
             )
 
-        if isinstance(json_content, dict):
-            json_content = [json_content]
-
-        async with aiohttp.ClientSession() as session:
-            controller: KauflandController = KauflandController(
-                session, controller_name
+        if mode == "upload_collection":
+            log("Massive upload")
+            if not job_id:
+                job_id = uuid4().hex
+            asyncio.create_task(
+                _run_upload_collection_job(
+                    controller_name, json_content, job_id
+                )
             )
-            service = KauflandUploadService(controller)
-            if mode == "upload_product":
-                if not job_id:
-                    job_id = uuid4().hex
-                update_task_context(job_id=job_id)
-                result = await service.upload_single(json_content[0], job_id=job_id)
+            return Response(
+                {"message": "upload job started", "job_id": job_id},
+                status=status.HTTP_202_ACCEPTED,
+            )
 
-                return Response(
-                    (
-                        {"message": "success", "job_id": job_id}
-                        if result
-                        else {"message": "failed", "job_id": job_id}
-                    ),
-                    status=200 if result else 500,
-                )
-
-            if mode == "upload_collection":
-                log("Massive upload")
-                if not job_id:
-                    job_id = uuid4().hex
-                update_task_context(job_id=job_id)
-                asyncio.create_task(
-                    _run_upload_collection_job(
-                        controller_name, json_content, job_id, username
-                    )
-                )
-                return Response(
-                    {"message": "upload job started", "job_id": job_id},
-                    status=status.HTTP_202_ACCEPTED,
-                )
-
-        return Response({"error": "invalid mode"}, status=status.HTTP_400_BAD_REQUEST)
-    finally:
-        clear_task_context(task_token)
+    return Response({"error": "invalid mode"}, status=status.HTTP_400_BAD_REQUEST)
 
 
 class MainOperationsView(APIView):
@@ -322,12 +303,6 @@ class MainOperationsView(APIView):
         return Response({"message": "ok"}, status=status.HTTP_200_OK)
 
     async def post(self, request):
-        username = (
-            request.user.get_username()
-            if getattr(request.user, "is_authenticated", False)
-            else None
-        )
-        task_token = set_task_context(None, username)
         try:
             serializer = FileUploadSerializer(data=request.data)
             if not serializer.is_valid():
@@ -349,7 +324,6 @@ class MainOperationsView(APIView):
                     )
                 if not job_id:
                     job_id = uuid4().hex
-                update_task_context(job_id=job_id)
                 asyncio.create_task(_run_checker_job(controller, [single_ean], job_id))
                 return Response(
                     {
@@ -381,7 +355,6 @@ class MainOperationsView(APIView):
                     if mode == "delete":
                         if not job_id:
                             job_id = uuid4().hex
-                        update_task_context(job_id=job_id)
                         asyncio.create_task(
                             _run_delete_job(controller, eans_list, job_id)
                         )
@@ -397,7 +370,6 @@ class MainOperationsView(APIView):
                     if mode == "checker":
                         if not job_id:
                             job_id = uuid4().hex
-                        update_task_context(job_id=job_id)
                         asyncio.create_task(
                             _run_checker_job(controller, eans_list, job_id)
                         )
@@ -422,7 +394,6 @@ class MainOperationsView(APIView):
                     if mode == "delete":
                         if not job_id:
                             job_id = uuid4().hex
-                        update_task_context(job_id=job_id)
                         asyncio.create_task(
                             _run_delete_job(
                                 controller, list(eans_prices.keys()), job_id
@@ -466,8 +437,6 @@ class MainOperationsView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
             return response
-        finally:
-            clear_task_context(task_token)
 
 
 class UploadCollectionsViaJsonView(APIView):

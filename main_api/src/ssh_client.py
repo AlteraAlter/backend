@@ -40,10 +40,10 @@ class SSHFileClient:
             return content
 
         except FileNotFoundError:
-            log(f"File was not found on server: {remote_path}", save=True)
+            log(f"File was not found on server: {remote_path}")
             return None
         except Exception as e:
-            log(f"SSH error ({remote_path}: {e})", save=True)
+            log(f"SSH error ({remote_path}: {e})")
             return
 
         finally:

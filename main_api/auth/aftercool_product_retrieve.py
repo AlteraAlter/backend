@@ -1,11 +1,12 @@
 import httpx
+from typing import Any
 
 class AftercoolProductRetrieveService:
     def __init__(self, aftercool_base_url: str, session_cookie: str):
         self.aftercool_base_url = aftercool_base_url
         self.session_cookie = session_cookie
     
-    async def get_product(self, product_id: str) -> dict:
+    async def get_product(self, product_id: str) -> dict[str, Any]:
         url = f"{self.aftercool_base_url}/api/products"
         headers = {"Cookie": f"session={self.session_cookie}"}
         params = {"q": product_id}
@@ -13,7 +14,10 @@ class AftercoolProductRetrieveService:
         async with httpx.AsyncClient() as client:
             response = await client.get(url, headers=headers, params=params)
             if response.status_code == 200:
-                return response.json()
+                return {
+                    "success": True,
+                    "product": response,
+                }
             else:
                 return {
                     "success": False,

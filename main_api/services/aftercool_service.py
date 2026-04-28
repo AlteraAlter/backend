@@ -71,7 +71,7 @@ class AftercoolService:
         )
 
     async def login(self) -> str:
-        log("aftercool login started", save=False, level="debug")
+        log("aftercool login started", level="debug")
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 response = await client.post(
@@ -94,18 +94,17 @@ class AftercoolService:
                     raise AftercoolAuthError(
                         "aftercool auth succeeded but no session cookie"
                     )
-                log("aftercool login completed", save=False, level="debug")
+                log("aftercool login completed", level="debug")
                 return session
         except (httpx.ConnectTimeout, httpx.TimeoutException) as exc:
-            log("timeout while logging in to aftercool", save=True, level="error")
+            log("timeout while logging in to aftercool", level="error")
             raise AftercoolTransportError(
                 "timeout while logging in to aftercool"
             ) from exc
         except httpx.RequestError as exc:
             log(
                 "failed to connect to aftercool login endpoint",
-                save=True,
-                level="error",
+                                level="error",
             )
             raise AftercoolTransportError(
                 "failed to connect to aftercool login endpoint"
@@ -120,8 +119,7 @@ class AftercoolService:
         params = (query or AftercoolProductsQuery()).as_params()
         log(
             f"aftercool products fetch started with params={params}",
-            save=False,
-            level="debug",
+                        level="debug",
         )
         try:
             async with httpx.AsyncClient(
@@ -135,8 +133,7 @@ class AftercoolService:
         except (httpx.ConnectTimeout, httpx.TimeoutException) as exc:
             log(
                 "timeout while fetching products from aftercool",
-                save=True,
-                level="error",
+                                level="error",
             )
             raise AftercoolTransportError(
                 "timeout while fetching products from aftercool"
@@ -144,8 +141,7 @@ class AftercoolService:
         except httpx.RequestError as exc:
             log(
                 "failed to connect to aftercool products endpoint",
-                save=True,
-                level="error",
+                                level="error",
             )
             raise AftercoolTransportError(
                 "failed to connect to aftercool products endpoint"
@@ -154,8 +150,7 @@ class AftercoolService:
         if response.status_code != 200:
             log(
                 f"aftercool returned non-200 on products request status={response.status_code}",
-                save=True,
-                level="error",
+                                level="error",
             )
             raise AftercoolUpstreamError(
                 "aftercool returned non-200 on products request",
@@ -171,8 +166,7 @@ class AftercoolService:
             )
         log(
             f"aftercool products fetch completed, count={len(items)}",
-            save=False,
-            level="debug",
+                        level="debug",
         )
         return items
 

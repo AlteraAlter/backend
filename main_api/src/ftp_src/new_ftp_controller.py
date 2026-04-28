@@ -230,7 +230,7 @@ async def download_and_process_image(
                 return path
 
             except Exception as e:
-                log(f"[IMG] {url} error ({attempt}/{MAX_RETRIES}): {e}", save=True)
+                log(f"[IMG] {url} error ({attempt}/{MAX_RETRIES}): {e}")
                 if attempt == MAX_RETRIES:
                     return None
                 await asyncio.sleep((2**attempt) + random.uniform(0.5, 2))
@@ -316,7 +316,7 @@ async def download_and_process_image(
                 return path
 
             except Exception as e:
-                log(f"[IMG] {url} error ({attempt}/{MAX_RETRIES}): {e}", save=True)
+                log(f"[IMG] {url} error ({attempt}/{MAX_RETRIES}): {e}")
                 if attempt == MAX_RETRIES:
                     return None
                 await asyncio.sleep(2**attempt)

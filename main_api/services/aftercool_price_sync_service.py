@@ -150,15 +150,13 @@ class AftercoolPriceSyncService:
             if controller is None:
                 log(
                     f"aftercool sync skipped account={account} no controller mapping",
-                    save=True,
-                    level="warning",
+                                        level="warning",
                 )
                 continue
 
             log(
                 f"aftercool sync account_started account={account}",
-                save=True,
-                level="info",
+                                level="info",
             )
             await self._send_progress(
                 progress_sender,
@@ -203,8 +201,7 @@ class AftercoolPriceSyncService:
                 fetched_count = len(chunk)
                 log(
                     f"aftercool fetched account={account} batch={batch_index} offset={offset} fetched={fetched_count}",
-                    save=True,
-                    level="info",
+                                        level="info",
                 )
 
                 await self._send_progress(
@@ -227,8 +224,7 @@ class AftercoolPriceSyncService:
 
                 log(
                     f"aftercool parsed account={account} batch={batch_index} ean_price_pairs={len(pairs)}",
-                    save=True,
-                    level="info",
+                                        level="info",
                 )
                 await self._send_progress(
                     progress_sender,
@@ -312,7 +308,7 @@ class AftercoolPriceSyncService:
                         summary_parts.append(f"changed_to={round(aftercool_price, 2)}")
                     if action_detail:
                         summary_parts.append(f"detail={action_detail}")
-                    log(" ".join(summary_parts), save=True, level="info")
+                    log(" ".join(summary_parts), level="info")
 
                     result.processed += 1
 
@@ -347,8 +343,7 @@ class AftercoolPriceSyncService:
 
             log(
                 f"aftercool sync account_completed account={account} processed={result.processed} updated={result.updated} failed={result.failed}",
-                save=True,
-                level="info",
+                                level="info",
             )
             await self._send_progress(
                 progress_sender,
@@ -480,8 +475,7 @@ class AftercoolPriceSyncService:
                 if log_retries:
                     log(
                         f"retry attempt={attempt}/{max_attempts - 1} label='{retry_label}' error={exc}",
-                        save=True,
-                        level="warning",
+                                                level="warning",
                     )
                 await asyncio.sleep(sleep_time)
 

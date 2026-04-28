@@ -35,7 +35,7 @@ def get_description(ean: str) -> str:
     file_path = os.path.join(base_dir, "media", "html", f"{ean}.html")
 
     if not os.path.exists(file_path):
-        log(f"Нет файла: {ean}", save=True)
+        log(f"Нет файла: {ean}")
         return ""
 
     with open(file_path, encoding="utf-8") as f:
@@ -184,7 +184,7 @@ def get_description_from_remote_server(
     html_content = ssh_client.read_file(remote_path)
 
     if not html_content:
-        log("Пустой файл", save=True)
+        log("Пустой файл")
         return ""
 
     soup = BeautifulSoup(html_content, "html.parser")

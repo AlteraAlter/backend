@@ -1,7 +1,9 @@
 import asyncio
 import json
+import re
 from openai import OpenAI
 from config import GPT_API_KEY
+from main_api.src.logger import log
 
 
 client = OpenAI(api_key=GPT_API_KEY)
@@ -52,7 +54,8 @@ async def generate_description(article, size, color, material):
 
     response = await asyncio.to_thread(_do_request)
 
-    description = response.choices[0].message.content.strip()
+    description = response.choices[0].message.content.strip() if isinstance(response.choices[0].message.content ,str) else ""
+    log(f"Generated description: {description}")
     return description
 
 

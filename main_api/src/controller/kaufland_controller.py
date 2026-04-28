@@ -107,7 +107,7 @@ class KauflandController:
             "product_ids": {},
             "main_data": {},
         }
-        
+
         self.aftercool_base_url = "https://aftercool.de"
 
     @staticmethod
@@ -263,22 +263,31 @@ class KauflandController:
                                 "status": response.status,
                                 "response": response,
                             }
-                            
-    async def _get_session(self) -> str | None: 
-        aftercool = AftercoolAuthService(self.aftercool_base_url, username="Miras", password="Miras112112")
+
+    async def _get_session(self) -> str | None:
+        aftercool = AftercoolAuthService(
+            self.aftercool_base_url, username="Miras", password="Miras112112"
+        )
         auth = await aftercool.authenticate()
 
         if auth.get("success"):
+            log("Session obtained from aftercool", save=True, level="success")
             session_cookie = auth.get("session")
             return session_cookie
         else:
+            log("Failed session obtain from aftercool", save=True, level="error")
             return None
-        
-    async def _get_product(self, product_id: str, session_cookie: str):
-        aftercoool = AftercoolProductRetrieveService(self.aftercool_base_url, session_cookie)
+
+    async def _get_product(
+        self, product_id: str, session_cookie: str
+    ) -> dict[str, Any]:
+        log("Fetching product data from aftercool...", save=True, level="info")
+        aftercoool = AftercoolProductRetrieveService(
+            self.aftercool_base_url, session_cookie
+        )
         product = await aftercoool.get_product(product_id)
         return product
-            
+
     @staticmethod
     async def get_exchange_rate(currency: str = "PLN") -> float:
         """
@@ -372,7 +381,7 @@ class KauflandController:
                 storefront: unit_id for storefront, unit_id in fetched if unit_id
             }
         except Exception as e:
-            log(f"_fetch_unit_id_by_ean failed ean={ean} error={e}", save=True)
+            log(f"_fetch_unit_id_by_ean failed ean={ean} error={e}")
         self._ean_cache["unit_ids"][ean] = final_res
         return final_res
 
@@ -429,7 +438,6 @@ class KauflandController:
             if not isinstance(result, dict):
                 log(
                     f"add_unit failed ean={ean} storefront={storefront} response_type={type(result).__name__}",
-                    save=True,
                 )
                 return False
 
@@ -438,7 +446,6 @@ class KauflandController:
                 return True
             log(
                 f"add_unit failed ean={ean} storefront={storefront} response={result} body={json.dumps(body, ensure_ascii=False)}",
-                save=True,
             )
             return False
 
@@ -663,65 +670,23 @@ class KauflandController:
                 url = f"{self.base_api_url}/units/{unit_id}?storefront={storefront}&embedded=eco_participation"
                 total_price = await self._make_price(storefront=storefront, price=price)
                 payload = {"listing_price": total_price}
+
                 result = await self._universal_request(
                     method="PATCH", url=url, body=payload
                 )
                 message = result["message"]
 
                 if message == "success":
-                    await channel_layer.group_send(
-                        "price_updates",  # Group
-                        {
-                            "type": "price_update",
-                            "ean": ean,
-                            "new_price": total_price / 100,
-                            "storefront": storefront,
-                            "timestamp": datetime.now().isoformat(),
-                            "result": message,
-                        },
-                    )
                     bool_list.append(True)
+
                 elif message == "not found":
-                    await channel_layer.group_send(
-                        "price_updates",  # Group
-                        {
-                            "type": "price_update",
-                            "ean": ean,
-                            "new_price": 0,
-                            "old_price": 0,
-                            "storefront": storefront,
-                            "timestamp": datetime.now().isoformat(),
-                            "result": message,
-                        },
-                    )
                     bool_list.append(True)
+
                 else:
-                    await channel_layer.group_send(
-                        "price_updates",  # Group
-                        {
-                            "type": "price_update",
-                            "ean": ean,
-                            "new_price": 0,
-                            "old_price": 0,
-                            "storefront": storefront,
-                            "timestamp": datetime.now().isoformat(),
-                            "result": message,
-                        },
-                    )
                     bool_list.append(False)
+
             return all(bool_list)
-        await channel_layer.group_send(
-            "price_updates",  # Group
-            {
-                "type": "price_update",
-                "ean": ean,
-                "new_price": 0,
-                "old_price": 0,
-                "storefront": "all",
-                "timestamp": datetime.now().isoformat(),
-                "result": {"message": "product not found"},
-            },
-        )
+
         return True
 
     async def _delete_product_by_unit_id(
@@ -751,7 +716,6 @@ class KauflandController:
                     bool_list.append(False)
                     log(
                         f"delete failed ean={ean} storefront={storefront} unit_id={unit_id}",
-                        save=True,
                     )
                     with open(logs_file_path, "a", encoding="utf-8") as file:
                         file.write(
@@ -784,7 +748,7 @@ class KauflandController:
 
             return all(bool_list)
 
-        log(f"delete no_unit_ids ean={ean}", save=True)
+        log(f"delete no_unit_ids ean={ean}")
 
         await channel_layer.group_send(
             "delete_group",
@@ -808,7 +772,7 @@ class KauflandController:
             },
         )
 
-        log(f"delete ean_not_found ean={ean}", save=True)
+        log(f"delete ean_not_found ean={ean}")
         with open(logs_file_path, "a", encoding="utf-8") as file:
             file.write(f"\nEAN not found: {ean}\n")
         return True
@@ -873,7 +837,6 @@ class KauflandController:
         if "data" not in result_category:
             log(
                 f"ERROR WITH CATEGORY: {result_category} article: {article}, price: {price}, ean: {ean}, description: {description}",
-                save=True,
             )
             return None, None
         category_id = result_category["data"][0]["id_category"]
@@ -893,25 +856,27 @@ class KauflandController:
         """
         Функция для создания продукта приходит elem: dict
         """
-        if await is_cancelled(job_id):
-            return False
 
         ean = elem.get("ean")
 
+        log(f"Start creation of product with ean: {ean}")
+        if await is_cancelled(job_id):
+            return False
+
         if not ean:
-            log(f"ERROR WITH EAN: elem: {elem}", save=True)
+            log(f"ERROR WITH EAN: elem: {elem}")
             return False
 
         elif not elem.get("article"):
-            log(f"ERROR WITH ARTICLE: elem: {elem}", save=True)
+            log(f"ERROR WITH ARTICLE: elem: {elem}")
             return False
 
         elif elem.get("price", 0) < 30:
-            log(f"ERROR WITH PRICE: elem: {elem}", save=True)
+            log(f"ERROR WITH PRICE: elem: {elem}")
             return False
 
         elif not elem.get("pic_main"):
-            log(f"ERROR WITH PIC: elem: {elem}", save=True)
+            log(f"ERROR WITH PIC: elem: {elem}")
             return False
 
         article = elem["article"]
@@ -934,9 +899,9 @@ class KauflandController:
 
         delivery = 28
 
-        if "cn" in fabric.lower():
+        if isinstance(fabric, str) and "cn" in fabric.lower():
             delivery = 40
-        elif "tr" in fabric.lower() or "pl" in fabric.lower() or "it" in fabric.lower():
+        elif isinstance(fabric, str) and "tr" in fabric.lower() or isinstance(fabric, str) and "pl" in fabric.lower() or isinstance(fabric, str) and "it" in fabric.lower():
             delivery = 32
 
         ean = elem["ean"]
@@ -949,6 +914,11 @@ class KauflandController:
             with log_time(f"[{ean}] generate desc + process img total"):
                 description, pics = await asyncio.gather(description_task, pics_task)
         except Exception as e:
+            log(
+                f"generate_description/process_pics failed for EAN {ean}: {e}",
+                save=True,
+                level="error",
+            )
             return False
 
         height = elem["height"]
@@ -964,37 +934,54 @@ class KauflandController:
             generate_seo(article=article, size=size, color=color, material=material)
         )
         # adapt_task = asyncio.create_task(
-            # adapt_html_description(ean, description, ssh_client, controller)
+        # adapt_html_description(ean, description, ssh_client, controller)
         # )
         adapt_task = None
+        print("Starting HTML description adaptation...")
         if elem.get("I_stammartikel"):
+            log("<Body fetch...>", save=True, level="info")
             url = f"{self.aftercool_base_url}/api/products/"
             session = await self._get_session()
-            
+
             if session is None:
                 return False
-            
-            response = await self._get_product(product_id=elem["I_stammartikel"], session_cookie=session)
-            html = response.get("items", [])[0].get("row").get("Beschreibung")
-            adapt_task = asyncio.create_task(
-                adapt_html_description_v2(html=html, description=description)
+
+            log(
+                "Fetching product data for HTML description adaptation...",
+                save=True,
+                level="info",
             )
-            
-            
+            response: dict[str, Any] = await self._get_product(
+                product_id=elem["I_stammartikel"], session_cookie=session
+            )
+            if response.get("success"):
+                html = response.get("items", [])[0].get("row").get("Beschreibung")
+                adapt_task = asyncio.create_task(
+                    adapt_html_description_v2(html=html, description=description)
+                )
+            else:
+                log("Error happend while fetching html", save=True, level="error")
+                return False
+        log("No I_stammartikel, skipping HTML description adaptation...", save=True, level="info")
         category_task = asyncio.create_task(
             self._category_selector(article, price, ean, description)
         )
         if adapt_task:
+            log(
+                "Waiting for description adaptation and category selection...",
+                save=True,
+                level="info",
+            )
             adapt_result, category_result = await asyncio.gather(
                 adapt_task, category_task, return_exceptions=True
             )
         else:
+            log("Waiting for category selection...", save=True, level="info")
             adapt_result = description
             category_result = await category_task
         if isinstance(adapt_result, Exception):
             log(
                 f"HTML description adaptation failed for EAN {ean}: {adapt_result}",
-                save=True,
             )
             new_webtag = description
         else:
@@ -1004,19 +991,23 @@ class KauflandController:
             if not seo_task.done():
                 seo_task.cancel()
             return False
-        
-        category_id, category_name = category_result        
+
+        if isinstance(category_result, BaseException):
+            log("Critical error during category selection", save=True, level="error")
+            return False
+
+        category_id, category_name = category_result
 
         if category_id is None:
-            log(f"ERROR WITH CATEGORY ID IS NONE: EAN: {ean}", save=True)
-            return False
+            log(f"ERROR WITH CATEGORY ID IS NONE: EAN: {ean}")
+            return False    
 
         try:
             seo_list = await seo_task
         except Exception as e:
-            log(f"generate_seo failed for EAN {ean}: {e}", save=True)
+            log(f"generate_seo failed for EAN {ean}: {e}")
             seo_list = []
-
+        print(new_webtag)
         attributes = {
             "title": [article],
             "description": [new_webtag],
@@ -1063,16 +1054,28 @@ class KauflandController:
         log(
             f"normalized_product_json {json.dumps(normalized_item, ensure_ascii=False)}",
             save=True,
+            level="info",
         )
         log(
             f"request_body {json.dumps(json_body, ensure_ascii=False)}",
             save=True,
+            level="info",
         )
 
         try:
+            log(
+                "Sending request to Kaufland API to create or update product...",
+                save=True,
+                level="info",
+            )
             result = await self._universal_request("PUT", url, json_body)
 
         except Exception as e:
+            log(
+                f"Request to Kaufland API failed for EAN {ean}: {e}",
+                save=True,
+                level="error",
+            )
             return False
 
         if not isinstance(result, dict):
@@ -1085,6 +1088,11 @@ class KauflandController:
                 return False
 
             if unit_ids:
+                log(
+                    "Product already exists, updating price for existing unit_ids...",
+                    save=True,
+                    level="info",
+                )
                 update_result = await self._update_price_by_unit_id(
                     ean, price, unit_ids
                 )
@@ -1103,10 +1111,11 @@ class KauflandController:
                 overall_result = update_result and add_result
                 return overall_result
             else:
+                log("Fresh product, adding unit_id...", save=True, level="info")
                 result = await self._add_unit_id(ean, price, delivery)
                 return result
         else:
-            log(f"ERROR WITH CREATING PRODUCT BODY: {result} elem: {elem}", save=True)
+            log(f"Failed to create or replace product for EAN {ean}: {result}", save=True, level="error")
             return False
 
     async def delete_all_products(self, eans, job_id: str | None = None):
@@ -1319,7 +1328,6 @@ class KauflandController:
                     if isinstance(item, Exception):
                         log(
                             f"products_checker failed and stopped ean={normalized_ean} error={item}",
-                            save=True,
                         )
                         if job_id:
                             await self._send_task_progress(
@@ -1448,11 +1456,9 @@ class KauflandController:
 
         # Если были удалены элементы, фиксируем это в логах и прогрессе.
         if removed_invalid_items:
-            log(
-                f"upload skipped invalid items count={removed_invalid_items}", save=True
-            )
+            log(f"upload skipped invalid items count={removed_invalid_items}")
         if removed_duplicates:
-            log(f"upload skipped duplicate eans count={removed_duplicates}", save=True)
+            log(f"upload skipped duplicate eans count={removed_duplicates}")
 
         if not job_id:
             job_id = uuid4().hex
@@ -1496,7 +1502,6 @@ class KauflandController:
                 except Exception as e:
                     log(
                         f"upload unexpected error ean={ean} error={e}",
-                        save=True,
                     )
                     ok = False
                 finally:
@@ -1515,77 +1520,44 @@ class KauflandController:
                         worker.cancel()
                     if workers:
                         await asyncio.gather(*workers, return_exceptions=True)
-                    await self._emit_progress_event(
-                        job_id,
-                        "job_failed",
-                        payload={
-                            "total": total,
-                            "processed": processed_count,
-                            "success": success_count,
-                            "error": error_count,
-                            "failed_eans": failed_eans,
-                        },
-                        info="stopped",
-                    )
+                        
                     return False
                 try:
                     item, ok = await asyncio.wait_for(done_queue.get(), timeout=0.25)
+                    
                 except asyncio.TimeoutError:
                     continue
+
                 result_list.append(ok)
                 processed_count += 1
                 current_ean = item.get("ean") if isinstance(item, dict) else None
+                
                 if ok:
                     success_count += 1
+                    
                 else:
                     error_count += 1
                     if current_ean is not None:
                         failed_eans.append(str(current_ean))
-                if self._should_emit_progress(
-                    processed=processed_count,
-                    total=total,
-                    last_emit_at=last_progress_emit_at,
-                ):
-                    await self._emit_progress_event(
-                        job_id,
-                        "job_progress",
-                        payload={
-                            "total": total,
-                            "processed": processed_count,
-                            "success": success_count,
-                            "error": error_count,
-                            "ean": current_ean,
-                        },
-                    )
-                    last_progress_emit_at = time.monotonic()
+                    
             if workers:
                 await asyncio.gather(*workers, return_exceptions=True)
+                
         except asyncio.CancelledError:
             for worker in workers:
                 worker.cancel()
+                
             if workers:
                 await asyncio.gather(*workers, return_exceptions=True)
             return False
+        
         finally:
             if job_id:
                 await unregister_running_job(job_id)
+                
         if all(result_list):  # Все успешно
-            await self._emit_progress_event(
-                job_id,
-                "job_completed",
-                payload={
-                    "status": "success",
-                    "total": total,
-                    "processed": processed_count,
-                    "success": success_count,
-                    "error": error_count,
-                    "skipped": skipped_count,
-                    "skipped_invalid": removed_invalid_items,
-                    "skipped_duplicates": removed_duplicates,
-                    "failed_eans": failed_eans,
-                },
-            )
             return True
+        
         elif any(result_list) and not all(result_list):  # Частично успешно
             return False
 

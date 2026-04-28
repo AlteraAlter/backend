@@ -1,5 +1,6 @@
 from .json_mapper import map_json_item
 from main_api.src.controller.kaufland_controller import KauflandController
+from main_api.src.logger import log
 import json
 
 class KauflandUploadService:
@@ -19,4 +20,8 @@ class KauflandUploadService:
         controller: str | None = None,
     ) -> bool:
         mapped = [map_json_item(item) for item in raw_items]
-        return await self.controller.upload_via_json(mapped, job_id=job_id)
+        log("Items mapped")
+        ok = await self.controller.upload_via_json(mapped, job_id=job_id)
+        if ok:
+            return ok
+        return False

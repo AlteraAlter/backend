@@ -41,7 +41,7 @@ def cleanup_expired_local_images(base_dir: str, ttl_minutes: int) -> None:
             if entry.stat().st_mtime < cutoff:
                 os.remove(entry.path)
         except Exception as e:
-            log(f"Local image cleanup failed path={entry.path} error={e}", save=True)
+            log(f"Local image cleanup failed path={entry.path} error={e}")
 
 
 # =========================
@@ -86,8 +86,7 @@ async def process_pics(pics: list[str]) -> list[str]:
                 except Exception as e:
                     log(
                         f"Local image publish failed local_path={local_path} error={e}",
-                        save=True,
-                    )
+                                            )
 
         download_tasks = [asyncio.create_task(download_worker(url)) for url in pics]
         upload_tasks = []
