@@ -3,16 +3,13 @@ from rest_framework_simplejwt.views import TokenRefreshView
 
 from main_api.views import (
     MainOperationsView,
-    RetreiveProductView,
     UploadCollectionsViaJsonView,
     UploadCollectionsViaJsonJwtView,
     ProtectedView,
     HealthCheckView,
     ProductByEanView,
-    AftercoolLoginView,
-    RetreiveProductView,
-    ChangeProductView,
 )
+from main_api.external_views import AftercoolLoginView, RetreiveProductView, ChangeProductView
 from main_api.auth.views import CustomTokenObtainSlidingView
 
 urlpatterns = [
