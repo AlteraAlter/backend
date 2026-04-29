@@ -282,6 +282,7 @@ class KauflandController:
         self, product_id: str, session_cookie: str
     ) -> dict[str, Any]:
         log("Fetching product data from aftercool...", save=True, level="info")
+        
         aftercoool = AftercoolProductRetrieveService(
             self.aftercool_base_url, session_cookie
         )
@@ -859,7 +860,7 @@ class KauflandController:
 
         ean = elem.get("ean")
 
-        log(f"Start creation of product with ean: {ean}")
+        log(f"start upload item ean={ean}")
         if await is_cancelled(job_id):
             return False
 
@@ -937,7 +938,8 @@ class KauflandController:
         # adapt_html_description(ean, description, ssh_client, controller)
         # )
         adapt_task = None
-        print("Starting HTML description adaptation...")
+        log("starting html description adaptation")
+        
         if elem.get("I_stammartikel"):
             log("<Body fetch...>", save=True, level="info")
             url = f"{self.aftercool_base_url}/api/products/"
@@ -955,17 +957,44 @@ class KauflandController:
                 product_id=elem["I_stammartikel"], session_cookie=session
             )
             if response.get("success"):
-                html = response.get("items", [])[0].get("row").get("Beschreibung")
-                adapt_task = asyncio.create_task(
-                    adapt_html_description_v2(html=html, description=description)
-                )
+                items = response.get("items")
+                if not isinstance(items, list) or not items:
+                    payload = response.get("payload")
+                    if isinstance(payload, dict):
+                        payload_items = payload.get("items")
+                        if isinstance(payload_items, list):
+                            items = payload_items
+
+                first_item = items[0] if isinstance(items, list) and items else {}
+                row = first_item.get("row") if isinstance(first_item, dict) else {}
+                html = row.get("Beschreibung") if isinstance(row, dict) else ""
+
+                if html:
+                    log(
+                        f"Aftercool Beschreibung received for EAN {ean} (len={len(str(html))})",
+                        save=True,
+                        level="info",
+                    )
+                    adapt_task = asyncio.create_task(
+                        adapt_html_description_v2(html=html, description=description)
+                    )
+                else:
+                    log(
+                        f"Aftercool returned empty/malformed Beschreibung for EAN {ean}; using generated description fallback",
+                        save=True,
+                        level="warning",
+                    )
             else:
                 log("Error happend while fetching html", save=True, level="error")
                 return False
-        log("No I_stammartikel, skipping HTML description adaptation...", save=True, level="info")
+        else:
+            log("No I_stammartikel, skipping HTML description adaptation...", save=True, level="info")
+
         category_task = asyncio.create_task(
             self._category_selector(article, price, ean, description)
         )
+        adapt_result = None
+        category_result = None
         if adapt_task:
             log(
                 "Waiting for description adaptation and category selection...",
@@ -979,7 +1008,7 @@ class KauflandController:
             log("Waiting for category selection...", save=True, level="info")
             adapt_result = description
             category_result = await category_task
-        if isinstance(adapt_result, Exception):
+        if isinstance(adapt_result, Exception) or adapt_result is None:
             log(
                 f"HTML description adaptation failed for EAN {ean}: {adapt_result}",
             )
@@ -1007,7 +1036,7 @@ class KauflandController:
         except Exception as e:
             log(f"generate_seo failed for EAN {ean}: {e}")
             seo_list = []
-        print(new_webtag)
+        log(f"description prepared ean={ean} len={len(str(new_webtag))}")
         attributes = {
             "title": [article],
             "description": [new_webtag],
@@ -1052,12 +1081,7 @@ class KauflandController:
 
         normalized_item = self._build_item_payload(elem)
         log(
-            f"normalized_product_json {json.dumps(normalized_item, ensure_ascii=False)}",
-            save=True,
-            level="info",
-        )
-        log(
-            f"request_body {json.dumps(json_body, ensure_ascii=False)}",
+            f"payload ready ean={ean} title_len={len(str(article))} desc_len={len(str(new_webtag))} pics={len(pics)}",
             save=True,
             level="info",
         )
@@ -1539,6 +1563,12 @@ class KauflandController:
                     error_count += 1
                     if current_ean is not None:
                         failed_eans.append(str(current_ean))
+
+                log(
+                    f"upload progress processed={processed_count}/{total} success={success_count} error={error_count}",
+                    save=True,
+                    level="info",
+                )
                     
             if workers:
                 await asyncio.gather(*workers, return_exceptions=True)

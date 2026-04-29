@@ -20,7 +20,7 @@ class KauflandUploadService:
         controller: str | None = None,
     ) -> bool:
         mapped = [map_json_item(item) for item in raw_items]
-        log("Items mapped")
+        log(f"Items mapped: {mapped}")
         ok = await self.controller.upload_via_json(mapped, job_id=job_id)
         if ok:
             return ok

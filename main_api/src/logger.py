@@ -42,6 +42,25 @@ console_handler.setLevel(
     }.get(_console_min_level.strip().lower(), logging.WARNING)
 )
 _global_log_file = os.getenv("LOG_FILE_PATH", "universal.log")
+_default_fallback_log_file = os.path.join("logs", "universal.log")
+
+
+def _select_log_file(path: str) -> str:
+    try:
+        directory = os.path.dirname(path)
+        if directory:
+            os.makedirs(directory, exist_ok=True)
+        with open(path, "a", encoding="utf-8"):
+            pass
+        return path
+    except Exception:
+        directory = os.path.dirname(_default_fallback_log_file)
+        if directory:
+            os.makedirs(directory, exist_ok=True)
+        return _default_fallback_log_file
+
+
+_global_log_file = _select_log_file(_global_log_file)
 
 # чтобы не дублировал
 logger.propagate = False

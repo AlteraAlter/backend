@@ -178,6 +178,9 @@ def normalize_json_item(elem: dict) -> dict:
         measurement = _first_measurement(specifics)
         if measurement:
             normalized["Maße"] = measurement
+            
+    if "I_stammartikel" in normalized:
+        normalized["I_stammartikel"] = str(normalized.get("I_stammartikel")).strip()
 
     if not normalized.get("Fabric"):
         normalized["Fabric"] = _guess_fabric(normalized)
@@ -204,6 +207,7 @@ def map_json_item(elem: dict) -> dict:
     return {
         "article": elem.get("Artikelbeschreibung", ""),
         "price": elem.get("Startpreis", 0),
+        "I_stammartikel": elem.get("I_stammartikel", ""),
         "pic_main": elem.get("GalleryURL", elem.get("PictureURL")),
         "pics": (
             elem.get("pictureurls", "").split(";")

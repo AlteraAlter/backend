@@ -21,3 +21,21 @@ class AftercoolAuthService:
                     "success": False,
                     "session": None,
                 }
+         
+async def main():
+    aftercool_base_url = "https://aftercool.de"
+    username = "Miras"
+    password = "Miras112112"
+    
+    auth_service = AftercoolAuthService(aftercool_base_url, username, password)
+    auth_result = await auth_service.authenticate()
+    
+    if auth_result["success"]:
+        print(f"Authenticated successfully. Session: {auth_result['session']}")
+    else:
+        print("Authentication failed.")         
+         
+                
+if __name__ == "__main__":
+    import asyncio
+    asyncio.run(main())

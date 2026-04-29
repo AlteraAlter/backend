@@ -8,6 +8,8 @@
 """
 
 import os
+from html import unescape
+from urllib.parse import unquote
 from bs4 import BeautifulSoup
 from main_api.src.logger import log
 from .ssh_client import SSHFileClient
@@ -167,8 +169,9 @@ async def adapt_html_description_v2(html: str, description: str):
     Старая версия читала с нашего сервера (которая сейчас не робит).
     Поэтому надо передавать уже спаршенный HTML из афтеркула от Равиля. 
     """
-
-    webtag = add_extra_fields_webtag(description=description, webtag=html)
+    log("Adapting HTML description (v2)")
+    cleaned_html = _normalize_aftercool_html(html)
+    webtag = add_extra_fields_webtag(description=description, webtag=cleaned_html)
     return webtag
     
 
@@ -229,6 +232,41 @@ def get_description_from_remote_server(
     """.strip()
     log(f"Generated description successfully [{ean}]")
     return final_html
+
+
+def _normalize_aftercool_html(raw_html: str) -> str:
+    """
+    Нормализует HTML из Aftercool:
+    - декодирует URL-encoding (%0d%0a и т.д.),
+    - убирает служебные теги/скрипты,
+    - оставляет контент из основного блока описания.
+    """
+    if not raw_html:
+        return ""
+
+    decoded = unquote(str(raw_html))
+    decoded = unescape(decoded)
+    soup = BeautifulSoup(decoded, "html.parser")
+
+    # Удаляем потенциально проблемные или бесполезные для Kaufland узлы.
+    for tag in soup.find_all(["script", "style", "link", "meta", "noscript"]):
+        tag.decompose()
+
+    candidate = (
+        soup.find("div", id="tab-content1")
+        or soup.find("div", class_="panel-body")
+        or _find_fallback_description(soup)
+    )
+
+    if candidate:
+        inner_html = "".join(str(child) for child in candidate.contents).strip()
+        return inner_html if inner_html else str(candidate)
+
+    body = soup.body
+    if body:
+        return "".join(str(child) for child in body.contents).strip()
+
+    return str(soup).strip()
 
 
 def _find_fallback_description(soup: BeautifulSoup):
