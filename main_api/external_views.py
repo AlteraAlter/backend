@@ -1,5 +1,6 @@
 import asyncio
 import os
+import re
 from uuid import uuid4
 
 import aiohttp
@@ -9,6 +10,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
 from main_api.serializers import RetrieveProductSerializer
+from main_api.external_serializer import ProductDataSerializer
 from main_api.services.aftercool_service import (
     AftercoolAuthError,
     AftercoolTransportError,
@@ -16,6 +18,7 @@ from main_api.services.aftercool_service import (
 )
 from main_api.services.aftercool_price_sync_service import AftercoolPriceSyncService
 from main_api.src.controller.kaufland_controller import KauflandController
+from main_api.src.controller.rest_api_controller import RestApiController
 from main_api.src.job_registry import clear_cancel, is_cancelled, register_running_job, unregister_running_job
 from main_api.src.logger import log
 
@@ -195,13 +198,101 @@ class RetreiveProductView(APIView):
         return Response(result, status=status.HTTP_200_OK)
 
 
-class ChangeProductView(APIView):
+class PatchProductView(APIView):
+    serializer_class = ProductDataSerializer
+    permission_classes = [AllowAny]
 
     async def get(self, request):
         return Response({"message": "ok"}, status=status.HTTP_200_OK)
 
-    async def post(self, request):
+    async def put(self, request):
+        return Response({"message": "ok"}, status=status.HTTP_200_OK)
+    
+    async def patch(self, request):
+        items = request.data if isinstance(request.data, list) else [request.data]
+        results = []
 
-        data = request.data
+        for item in items:
+            serializer = self.serializer_class(data=item)
+            serializer.is_valid(raise_exception=True)
 
-        return Response({"received_data": data}, status=status.HTTP_200_OK)
+            validated_data = serializer.validated_data
+            ean = validated_data["ean"]
+            controller = validated_data["controller"]
+
+            attributes = {}
+            if "title" in validated_data:
+                attributes["title"] = [validated_data["title"]]
+            if "description" in validated_data:
+                attributes["description"] = [validated_data["description"]]
+            if "picture_urls" in validated_data:
+                attributes["picture_urls"] = [validated_data["picture_urls"]]
+
+
+            storefront = str(validated_data.get("storefront")) if validated_data.get("storefront") else "de"
+            
+            payload = {"ean": [ean], "attributes": attributes}
+
+            response_item = {
+                "received_data": validated_data,
+                "product_data_updated": False,
+                "price_updated": False,
+            }
+
+            if attributes:
+                async with aiohttp.ClientSession() as client:
+                    rac = RestApiController(controller=controller, session=client)
+                    api_response = await rac.send_request(
+                        method="PATCH",
+                        endpoint=f"/product-data?locale={self.to_locale_value(storefront)}",
+                        json=payload,
+                    )
+                response_item["product_data_updated"] = True
+                response_item["product_data_response"] = api_response
+
+            if validated_data.get("unit_id"):
+                unit_id: str = validated_data.get("unit_id")
+                price = validated_data.get("price")
+
+                if unit_id and price is not None:
+                    unit_endpoint = (
+                        f"/units/{unit_id}?storefront={storefront}"
+                    )
+                    async with aiohttp.ClientSession() as client:
+                        rac = RestApiController(controller=controller, session=client)
+                        payload = rac.make_price_payload(
+                            storefront=storefront,
+                            price=float(price),
+                        )
+                        
+                        try:
+                            price_response = await rac.send_request(
+                                method="PATCH",
+                                endpoint=unit_endpoint,
+                                json=payload,
+                            )
+                            
+                        except Exception as exc:
+                            return Response(f"Failed to update price: {exc}, json = {payload}", status=status.HTTP_400_BAD_REQUEST)
+
+                    response_item["price_updated"] = True
+                    response_item["price_response"] = price_response
+
+                results.append(response_item)
+
+        if isinstance(request.data, list):
+            return Response({"results": results}, status=status.HTTP_200_OK)
+        
+        return Response(results[0], status=status.HTTP_200_OK)
+
+    
+    def to_locale_value(self, storefront: str) -> str:
+        match storefront:
+            case "de": return "de-DE"
+            case "cz": return "cs-CZ"
+            case "sk": return "sk-SK"
+            case "at": return "de-AT"
+            case "pl": return "pl-PL"
+            case "fr": return "fr-FR"
+            case "it": return "it-IT"
+            case _: return "de-DE"

@@ -9,11 +9,12 @@ from main_api.views import (
     HealthCheckView,
     ProductByEanView,
 )
-from main_api.external_views import AftercoolLoginView, RetreiveProductView, ChangeProductView
+from main_api.external_views import AftercoolLoginView, RetreiveProductView, PatchProductView
 from main_api.auth.views import CustomTokenObtainSlidingView
 
 urlpatterns = [
     path("health/", HealthCheckView.as_view(), name="health"),
+    path("products/ean/change/", PatchProductView.as_view(), name="patch_product"),
     path("products/ean/<str:ean>/", ProductByEanView.as_view(), name="product_by_ean"),
     path("kaufland_main/", MainOperationsView.as_view(), name="main_operations"),
     path(
@@ -34,6 +35,5 @@ urlpatterns = [
     path(
         "products/product/ean/", RetreiveProductView.as_view(), name="retrieve_product"
     ),
-    path("products/ean/change/", ChangeProductView.as_view(), name="change_product"),
     # path("fabrics/", RetreiveProductView.as_view(), name="retrieve_fabric"),
 ]

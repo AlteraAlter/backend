@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 from corsheaders.defaults import default_headers
 from datetime import timedelta
 from pathlib import Path
+import sys
 from config import (
     POSTGRES_DB,
     POSTGRES_PASSWORD,
@@ -159,6 +160,13 @@ DATABASES = {
         "PORT": DB_PORT,
     }
 }
+
+# Local/dev convenience: allow tests to run without external Postgres.
+if "test" in sys.argv and os.getenv("DJANGO_TEST_SQLITE", "1") == "1":
+    DATABASES["default"] = {
+        "ENGINE": "django.db.backends.sqlite3",
+        "NAME": str(BASE_DIR / "test_db.sqlite3"),
+    }
 
 
 # Password validation

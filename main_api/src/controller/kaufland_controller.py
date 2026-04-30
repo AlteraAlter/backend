@@ -7,20 +7,15 @@ from sqlite3 import adapt
 import time
 import hmac
 import json
-import random
 import asyncio
-from turtle import title
 from typing import Any
 from uuid import uuid4
 import certifi
 import aiohttp
 import hashlib
 from datetime import datetime
-from aiohttp import ClientError
 from django.conf import settings
 from channels.layers import get_channel_layer
-from httpx import Auth
-from numpy import int32
 from config import (
     controllers_base,
     storefronts,
@@ -130,16 +125,6 @@ class KauflandController:
             return True
         return (now - last_emit_at) >= max(0.0, interval_sec)
 
-    def _get_ssh_client(self):
-        """
-        Lazy SSH client initialization
-        Created once per controller instance
-        """
-        if self._ssh_client == None:
-            self._ssh_client = SSHFileClient(
-                host=SSH_HOST, username=SSH_USER, key_path=SSH_KEY_PATH
-            )
-        return self._ssh_client
 
     async def _apply_inter_request_delay(self) -> None:
         global _GLOBAL_LAST_REQUEST_AT
