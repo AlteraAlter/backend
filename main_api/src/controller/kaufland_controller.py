@@ -1612,6 +1612,7 @@ class KauflandController:
             else:
                 response_data[key] = [value]
         response_data["price"] = prices
+        response_data["unit_id"] = units[0].get("id_unit")
 
         return {"response_data": response_data}
 

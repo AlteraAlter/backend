@@ -19,6 +19,7 @@ class ProductDataSerializer(serializers.Serializer):
     ean = serializers.CharField(required=True, allow_blank=False, trim_whitespace=True)
     title = serializers.CharField(required=False, allow_blank=True, trim_whitespace=True)
     description = serializers.CharField(required=False, allow_blank=True, trim_whitespace=True)
+    picture = serializers.ListField(required=False, allow_empty=True, child=serializers.CharField())
     picture_urls = serializers.ListField(required=False, allow_empty=True, child=serializers.URLField())
     unit_id = serializers.CharField(required=False, allow_blank=True, trim_whitespace=True)
     storefront = serializers.CharField(required=True, allow_blank=True, trim_whitespace=True)
@@ -29,3 +30,7 @@ class ProductDataSerializer(serializers.Serializer):
     def to_internal_value(self, data):
         allowed = {field: data[field] for field in self.fields if field in data}
         return super().to_internal_value(allowed)
+    
+    
+class DeleteDataSerializer(serializers.Serializer):
+    controller = serializers.ChoiceField(choices=["jv", "xl"], required=True)

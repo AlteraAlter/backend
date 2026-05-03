@@ -4,13 +4,14 @@ import re
 from uuid import uuid4
 
 import aiohttp
+from config import JV_CONTACT_DATA, JV_MANUFACTURER, XL_CONTACT_DATA, XL_MANUFACTURER
 from adrf.views import APIView
 from rest_framework import status
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
 from main_api.serializers import RetrieveProductSerializer
-from main_api.external_serializer import ProductDataSerializer
+from main_api.external_serializer import DeleteDataSerializer, ProductDataSerializer
 from main_api.services.aftercool_service import (
     AftercoolAuthError,
     AftercoolTransportError,
@@ -206,10 +207,101 @@ class PatchProductView(APIView):
         return Response({"message": "ok"}, status=status.HTTP_200_OK)
 
     async def put(self, request):
-        return Response({"message": "ok"}, status=status.HTTP_200_OK)
+        items = request.data if isinstance(request.data, list) else [request.data]
+        results = []
+
+        for item in items:
+            serializer = self.serializer_class(data=item)
+            serializer.is_valid(raise_exception=True)
+            validated_data = serializer.validated_data
+
+            ean = validated_data["ean"]
+            controller = validated_data["controller"]
+            storefront = (
+                str(validated_data.get("storefront"))
+                if validated_data.get("storefront")
+                else "de"
+            )
+
+            attributes = {"ean": [ean]}
+            if "title" in validated_data:
+                attributes["title"] = [validated_data["title"]]
+            if "description" in validated_data:
+                attributes["description"] = [validated_data["description"]]
+            if "picture_urls" in validated_data:
+                attributes["picture"] = validated_data["picture_urls"]
+
+            if controller == "jv":
+                attributes["manufacturer"] = JV_MANUFACTURER
+                attributes["product_safety_contact"] = JV_CONTACT_DATA
+            else:
+                attributes["manufacturer"] = XL_MANUFACTURER
+                attributes["product_safety_contact"] = XL_CONTACT_DATA
+
+            payload = {"ean": [ean], "attributes": attributes}
+            response_item = {
+                "received_data": validated_data,
+                "product_data_put": False,
+                "unit_created_or_updated": False,
+            }
+
+            async with aiohttp.ClientSession() as client:
+                rac = RestApiController(controller=controller, session=client)
+                put_response = await rac.send_request(
+                    method="PUT",
+                    endpoint=f"/product-data?locale={self.to_locale_value(storefront)}",
+                    json=payload,
+                )
+                response_item["product_data_put"] = True
+                response_item["product_data_response"] = put_response
+
+                if validated_data.get("price") is not None:
+                    raw_price = float(validated_data["price"])
+                    price_payload = rac.make_price_payload(
+                        storefront=storefront,
+                        price=raw_price,
+                    )
+                    product_response = await rac.send_request(
+                        method="GET",
+                        endpoint=f"/products/ean/{ean}?storefront={storefront}&embedded=units",
+                    )
+
+                    data = product_response.get("data") or {}
+                    units = data.get("units") or []
+                    unit_id = units[0].get("id_unit") if units else None
+
+                    if unit_id:
+                        unit_response = await rac.send_request(
+                            method="PATCH",
+                            endpoint=f"/units/{unit_id}?storefront={storefront}",
+                            json=price_payload,
+                        )
+                    else:
+                        create_payload = {
+                            "amount": 20,
+                            "handling_time": 28,
+                            "listing_price": price_payload["listing_price"],
+                            "ean": str(ean),
+                            "id_offer": f"{ean}",
+                            "condition": "NEW",
+                        }
+                        unit_response = await rac.send_request(
+                            method="POST",
+                            endpoint=f"/units?storefront={storefront}&embedded=eco_participation",
+                            json=create_payload,
+                        )
+
+                    response_item["unit_created_or_updated"] = True
+                    response_item["unit_response"] = unit_response
+
+            results.append(response_item)
+
+        if isinstance(request.data, list):
+            return Response({"results": results}, status=status.HTTP_200_OK)
+        return Response(results[0], status=status.HTTP_200_OK)
     
     async def patch(self, request):
-        items = request.data if isinstance(request.data, list) else [request.data]
+        items: list = request.data if isinstance(request.data, list) else [request.data]
         results = []
 
         for item in items:
@@ -223,14 +315,15 @@ class PatchProductView(APIView):
             attributes = {}
             if "title" in validated_data:
                 attributes["title"] = [validated_data["title"]]
+                
             if "description" in validated_data:
                 attributes["description"] = [validated_data["description"]]
+                
             if "picture_urls" in validated_data:
-                attributes["picture_urls"] = [validated_data["picture_urls"]]
-
+                attributes["picture"] = validated_data["picture_urls"]
 
             storefront = str(validated_data.get("storefront")) if validated_data.get("storefront") else "de"
-            
+
             payload = {"ean": [ean], "attributes": attributes}
 
             response_item = {
@@ -264,14 +357,14 @@ class PatchProductView(APIView):
                             storefront=storefront,
                             price=float(price),
                         )
-                        
+
                         try:
                             price_response = await rac.send_request(
                                 method="PATCH",
                                 endpoint=unit_endpoint,
                                 json=payload,
                             )
-                            
+
                         except Exception as exc:
                             return Response(f"Failed to update price: {exc}, json = {payload}", status=status.HTTP_400_BAD_REQUEST)
 
@@ -279,20 +372,57 @@ class PatchProductView(APIView):
                     response_item["price_response"] = price_response
 
                 results.append(response_item)
-
-        if isinstance(request.data, list):
-            return Response({"results": results}, status=status.HTTP_200_OK)
+        return Response({"results": results}, status=status.HTTP_200_OK)
         
-        return Response(results[0], status=status.HTTP_200_OK)
 
     
     def to_locale_value(self, storefront: str) -> str:
-        match storefront:
-            case "de": return "de-DE"
-            case "cz": return "cs-CZ"
-            case "sk": return "sk-SK"
-            case "at": return "de-AT"
-            case "pl": return "pl-PL"
-            case "fr": return "fr-FR"
-            case "it": return "it-IT"
-            case _: return "de-DE"
+        if storefront == "de":
+            return "de-DE"
+        if storefront == "cz":
+            return "cs-CZ"
+        if storefront == "sk":
+            return "sk-SK"
+        if storefront == "at":
+            return "de-AT"
+        if storefront == "pl":
+            return "pl-PL"
+        if storefront == "fr":
+            return "fr-FR"
+        if storefront == "it":
+            return "it-IT"
+        return "de-DE"
+
+
+
+class DeleteProductView(APIView):
+    serializer_class = DeleteDataSerializer
+    permission_classes = [AllowAny]
+    
+    async def delete(self, request, ean: str):
+        serializer = self.serializer_class(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        validated_data = serializer.validated_data
+        
+        controller = validated_data["controller"]
+        
+        locales = ["de-DE", "cs-CZ", "sk-SK", "de-AT", "pl-PL", "fr-FR", "it-IT"]
+        
+        async with aiohttp.ClientSession() as client:
+            rac = RestApiController(controller=controller, session=client)
+            result = {}
+            for locale in locales:
+                delete_response = {}
+                try:
+                    delete_response = await rac.send_request(
+                        method="DELETE",
+                        endpoint=f"/product-data/{ean}?locale={locale}",
+                    )
+                    result[locale] = delete_response.get("data")
+                except Exception as exc:
+                    result[locale] = f"Failed to delete: {exc}"
+                    
+            return Response({"result": result}, status=status.HTTP_200_OK)
+        
+        

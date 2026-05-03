@@ -41,18 +41,20 @@ class RestApiController:
 
         return digest_maker.hexdigest()
 
-    def _get_header(self, method, uri, body):
+    def _get_header(self, method, uri, body, has_payload: bool = True):
         timestamp = str(int(time.time()))
         signature = self._sign_request(method, uri, body, timestamp)
 
-        return {
+        headers = {
             "Accept": "application/json",
-            "Content-Type": "application/json",
             "User-Agent": "Inhouse_development",
             "Shop-Timestamp": timestamp,
             "Shop-Client-Key": self.client_key,
             "Shop-Signature": signature,
         }
+        if has_payload:
+            headers["Content-Type"] = "application/json"
+        return headers
 
     @staticmethod
     def get_exchange_rate(currency: str = "PLN") -> float:
@@ -90,6 +92,7 @@ class RestApiController:
         url = self.base_api_url + endpoint
 
         request_kwargs = dict(kwargs)
+        has_payload = any(key in request_kwargs for key in ("json", "data", "body"))
         body_for_signature = None
         if "json" in request_kwargs:
             body_for_signature = request_kwargs.get("json")
@@ -105,8 +108,16 @@ class RestApiController:
         if "json" in request_kwargs:
             request_kwargs.pop("json", None)
             request_kwargs["data"] = serialized_body
+        elif "body" in request_kwargs:
+            request_kwargs.pop("body", None)
+            request_kwargs["data"] = serialized_body
 
-        headers = self._get_header(method, url, serialized_body)
+        headers = self._get_header(
+            method,
+            url,
+            serialized_body,
+            has_payload=has_payload,
+        )
 
         async with self.session.request(
             method, url, headers=headers, **request_kwargs
@@ -114,5 +125,11 @@ class RestApiController:
             response_text = await response.text()
             if response.status >= 400:
                 raise Exception(f"API request failed: {response.status} - {response_text}")
-            
-            return await response.json()
+
+            if response.status == 204 or not response_text.strip():
+                return {"status": response.status, "data": None}
+
+            try:
+                return json.loads(response_text)
+            except json.JSONDecodeError:
+                return {"status": response.status, "data": response_text}
