@@ -130,6 +130,11 @@ class RestApiController:
                 return {"status": response.status, "data": None}
 
             try:
+                print(response_text)
                 return json.loads(response_text)
             except json.JSONDecodeError:
+                print("ERROR HERE")
                 return {"status": response.status, "data": response_text}
+            except Exception as e:
+                print(f"Exception {str(e)} happend: {type(e).__name__}, args: {e.args}")
+                raise TypeError("KOTAK")

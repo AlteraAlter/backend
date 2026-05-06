@@ -9,6 +9,7 @@ from adrf.views import APIView
 from rest_framework import status
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
+from rest_framework.exceptions import ValidationError
 
 from main_api.serializers import RetrieveProductSerializer
 from main_api.external_serializer import (
@@ -38,18 +39,19 @@ JOB_SEMAPHORE = asyncio.Semaphore(MAX_CONCURRENT_JOBS)
 
 def get_product_safety_contact(controller):
     jv = {
-        "name": "",
-        "email_address": "",
-        "phone_number": "",
-        "address": "",
-        "url": ""
+        "address": "Am Flugplatz 28, 88483 Burgrieden",
+        "email_address": "info@jvmoebel.de",
+        "name": "AEA GmbH & Co. KG",
+        "phone_number": "07392 - 93 78 44 0",
+        "url": "https://www.jvmoebel.de/Infos/Kontakt.htm",
     }
+    
     xl = {
-        "name": "",
-        "email_address": "",
-        "phone_number": "",
-        "address": "",
-        "url": ""
+        "address": "Am Flugplatz 26, 88483 Burgrieden",
+        "email_address": "info@xlmoebel.de",
+        "name": "XL MOEBEL GmbH",
+        "phone_number": "07392 - 93 78 44 5",
+        "url": "https://www.xlmoebel.de/xlmoebel-kontakt-zu-unserem-luxusmoebel-store"
     }
 
     return jv if controller == "jv" else xl
@@ -459,7 +461,10 @@ class PutProductView(APIView):
     
     async def put(self, request):
         serializer = self.serializer_class(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        try:
+            serializer.is_valid(raise_exception=True)
+        except ValidationError as ve:
+            return Response({"error": str(ve)}, status=status.HTTP_400_BAD_REQUEST)
         
         validated_data = serializer.validated_data
         
@@ -467,7 +472,7 @@ class PutProductView(APIView):
         ean = validated_data["ean"]
         controller = validated_data["controller"]
         
-        price = validated_data["price"]
+        price = int(validated_data["price"])
         size = validated_data["size"]
         color = validated_data["color"]
         material = validated_data["material"]
@@ -507,7 +512,11 @@ class PutProductView(APIView):
             "price": price
         }
         
-        result = {}
+        result = {
+            "data": {},
+            "errors": {},
+            "success": False,
+        }
         # Category selector
         async with aiohttp.ClientSession() as client:
             try:
@@ -515,7 +524,8 @@ class PutProductView(APIView):
                 endpoint = "/categories/decide?storefront=de&locale=de-DE"
                 response = await rac.send_request("POST", endpoint, json=category_selector_data)
             except Exception as e:
-                return Response({"success": False, "data": {"category": {"status": "failed"}}, "errors": e})
+                print(f"Exception {str(e)} happend: {type(e).__name__}, args: {e.args}")
+                return Response({"success": False, "data": {"category": {"status": "failed"}}, "errors": str(e)})
             
             category_name = response["data"][0]["name"]
             category_id = response["data"][0]["id_category"]
@@ -543,11 +553,11 @@ class PutProductView(APIView):
         async with aiohttp.ClientSession() as client:
             try:
                 rac = RestApiController(controller, client)
-                endpoint = "/product-data"
+                endpoint = "/product-data?locale=de-DE"
                 response = await rac.send_request("PUT", endpoint, json=product_data)
 
             except Exception as e:
-                return Response({"success": False, "data": {"product": {"status": "failed"}}, "errors": e})
+                return Response({"success": False, "data": {"product": {"status": "failed"}}, "errors": str(e)})
             
         result["data"]["product-data"] = response
         result["success"] = True
@@ -570,7 +580,7 @@ class PutProductView(APIView):
                     response = await rac.send_request("POST", endpoint, json=unit_data)
                     
                 except Exception as e:
-                    result["errors"] = {**result.get("errors", {}), "storefront": {f"{storefront}": False, "detail": e}}
+                    result["errors"] = {**result.get("errors", {}), "storefront": {f"{storefront}": False, "detail": str(e)}}
                     continue
                 
                 finally:

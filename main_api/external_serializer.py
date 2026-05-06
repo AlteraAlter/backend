@@ -43,7 +43,7 @@ class PutDataSerializer(serializers.Serializer):
     description = serializers.CharField(required=True, allow_blank=True, trim_whitespace=True)
     picture = serializers.ListField(required=True, allow_empty=True, child=serializers.CharField())
 
-    price = serializers.DecimalField(required=True, max_digits=10, decimal_places=2)
+    price = serializers.CharField(required=True, trim_whitespace=True)
     size = serializers.CharField(required=True, allow_blank=False, trim_whitespace=True)
     color = serializers.CharField(required=True, allow_blank=False, trim_whitespace=True)
     material = serializers.CharField(required=True, allow_blank=False, trim_whitespace=True)
