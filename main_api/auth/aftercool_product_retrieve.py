@@ -1,7 +1,5 @@
 import httpx
 from typing import Any
-
-from requests import session
 from main_api.src.logger import log
 
 
@@ -14,27 +12,49 @@ class AftercoolProductRetrieveService:
         url = f"{self.aftercool_base_url}/api/products"
         headers = {"Cookie": f"session={self.session_cookie}"}
         params = {"q": product_id, "include_row": 1}
+        timeout = httpx.Timeout(connect=10.0, read=30.0, write=10.0, pool=10.0)
+        retries = 3
 
-        async with httpx.AsyncClient() as client:
-            response = await client.get(url, headers=headers, params=params)
-            payload = response.json() if response.status_code == 200 else {}
-            items = payload.get("items") if isinstance(payload, dict) else []
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            for attempt in range(1, retries + 1):
+                try:
+                    log(
+                        f"aftercool get_product attempt={attempt}/{retries} product_id={product_id}",
+                        save=True,
+                        level="info",
+                    )
+                    response = await client.get(url, headers=headers, params=params)
+                    payload = response.json() if response.status_code == 200 else {}
+                    items = payload.get("items") if isinstance(payload, dict) else []
 
-            if isinstance(items, list) and items:
-                first_name = items[0].get("name") if isinstance(items[0], dict) else ""
-                if first_name:
-                    log(str(first_name))
-                return {
-                    "success": True,
-                    "items": items,
-                    "payload": payload,
-                }
+                    if isinstance(items, list) and items:
+                        first_name = items[0].get("name") if isinstance(items[0], dict) else ""
+                        if first_name:
+                            log(str(first_name))
+                        return {
+                            "success": True,
+                            "items": items,
+                            "payload": payload,
+                        }
 
-            return {
-                "success": False,
-                "items": [],
-                "payload": payload if isinstance(payload, dict) else {},
-            }
+                    return {
+                        "success": False,
+                        "items": [],
+                        "payload": payload if isinstance(payload, dict) else {},
+                    }
+                except Exception as exc:
+                    log(
+                        f"aftercool get_product error attempt={attempt}/{retries} product_id={product_id} error_type={type(exc).__name__} error={exc!r}",
+                        save=True,
+                        level="error",
+                    )
+                    if attempt == retries:
+                        return {
+                            "success": False,
+                            "items": [],
+                            "payload": {},
+                            "error": f"{type(exc).__name__}: {exc!r}",
+                        }
 
 
 async def main():

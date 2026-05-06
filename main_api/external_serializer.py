@@ -34,3 +34,21 @@ class ProductDataSerializer(serializers.Serializer):
     
 class DeleteDataSerializer(serializers.Serializer):
     controller = serializers.ChoiceField(choices=["jv", "xl"], required=True)
+    
+
+class PutDataSerializer(serializers.Serializer):
+    ean = serializers.CharField(required=True, allow_blank=False, trim_whitespace=True)
+    controller = serializers.ChoiceField(choices=["jv", "xl"], required=True)
+    title = serializers.CharField(required=False, allow_blank=True, trim_whitespace=True)
+    description = serializers.CharField(required=True, allow_blank=True, trim_whitespace=True)
+    picture = serializers.ListField(required=True, allow_empty=True, child=serializers.CharField())
+
+    price = serializers.DecimalField(required=True, max_digits=10, decimal_places=2)
+    size = serializers.CharField(required=True, allow_blank=False, trim_whitespace=True)
+    color = serializers.CharField(required=True, allow_blank=False, trim_whitespace=True)
+    material = serializers.CharField(required=True, allow_blank=False, trim_whitespace=True)
+    delivery = serializers.IntegerField()
+    height = serializers.IntegerField()
+    length = serializers.IntegerField()
+    width = serializers.IntegerField()
+        

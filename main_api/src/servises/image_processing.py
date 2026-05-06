@@ -8,6 +8,7 @@ import time
 import random
 from urllib.parse import urlparse
 from PIL import Image
+from main_api.src.logger import log
 
 # --- CONFIG ---
 MIN_WIDTH = 2098
@@ -110,6 +111,7 @@ async def download_and_process_image(
     """
 
     async with http_semaphore:
+        start_ts = time.time()
         parsed = urlparse(url)
         original_name = os.path.basename(parsed.path)
         clean_name = clean_filename(original_name)
@@ -127,6 +129,11 @@ async def download_and_process_image(
 
         for attempt in range(1, MAX_RETRIES + 1):
             try:
+                log(
+                    f"image_download attempt={attempt}/{MAX_RETRIES} url={url}",
+                    save=True,
+                    level="info",
+                )
                 async with session.get(
                     url,
                     headers=headers,
@@ -136,6 +143,11 @@ async def download_and_process_image(
                     if resp.status != 200:
                         raise Exception(f"HTTP {resp.status}")
                     content = await resp.read()
+                log(
+                    f"image_download response_ok url={url} bytes={len(content)}",
+                    save=True,
+                    level="info",
+                )
 
                 # 🔥 MOVE PIL TO THREAD
                 loop = asyncio.get_running_loop()
@@ -147,7 +159,12 @@ async def download_and_process_image(
                         clean_name,
                         ext,
                     )
-                except Exception:
+                except Exception as e:
+                    log(
+                        f"image_processing failed url={url} error={e}",
+                        save=True,
+                        level="warning",
+                    )
                     return None
 
                 filename = f"{uuid.uuid4().hex}_{clean_name}"
@@ -155,10 +172,26 @@ async def download_and_process_image(
 
                 async with aiofiles.open(path, "wb") as f:
                     await f.write(processed_bytes)
+                elapsed = round(time.time() - start_ts, 3)
+                log(
+                    f"image_pipeline success url={url} output={path} bytes={len(processed_bytes)} elapsed_s={elapsed}",
+                    save=True,
+                    level="info",
+                )
 
                 return path
 
-            except Exception:
+            except Exception as e:
+                log(
+                    f"image_pipeline attempt_failed url={url} attempt={attempt}/{MAX_RETRIES} error={e}",
+                    save=True,
+                    level="warning",
+                )
                 if attempt == MAX_RETRIES:
+                    log(
+                        f"image_pipeline give_up url={url} after_attempts={MAX_RETRIES}",
+                        save=True,
+                        level="error",
+                    )
                     return None
                 await asyncio.sleep((2**attempt) + random.uniform(0.5, 2))

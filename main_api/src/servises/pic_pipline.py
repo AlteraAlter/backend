@@ -56,12 +56,23 @@ async def process_pics(pics: list[str]) -> list[str]:
     """
 
     if not pics:
+        log("process_pics skipped: empty source list", save=True, level="warning")
         return []
 
+    log(
+        f"process_pics started input_count={len(pics)} max_parallel_downloads={MAX_PARALLEL_DOWNLOADS} max_parallel_uploads={MAX_PARALLEL_UPLOADS}",
+        save=True,
+        level="info",
+    )
     storage = LocalImageStorage(
         base_dir=LOCAL_IMAGE_DIR,
         url_prefix=LOCAL_IMAGE_URL_PREFIX,
         public_base_url=LOCAL_IMAGE_PUBLIC_BASE_URL,
+    )
+    log(
+        f"process_pics storage config base_dir={storage.base_dir} url_prefix={storage.url_prefix} public_base_url={storage.public_base_url}",
+        save=True,
+        level="info",
     )
     cleanup_expired_local_images(storage.base_dir, LOCAL_IMAGE_TTL_MINUTES)
     timeout = aiohttp.ClientTimeout(total=120)
@@ -75,7 +86,20 @@ async def process_pics(pics: list[str]) -> list[str]:
 
         async def download_worker(url: str) -> str | None:
             async with download_sem:
-                return await download_and_process_image(session, url, TEMP_IMG_DIR)
+                local_path = await download_and_process_image(session, url, TEMP_IMG_DIR)
+                if local_path:
+                    log(
+                        f"process_pics download ok source_url={url} local_path={local_path}",
+                        save=True,
+                        level="info",
+                    )
+                else:
+                    log(
+                        f"process_pics download failed source_url={url}",
+                        save=True,
+                        level="warning",
+                    )
+                return local_path
 
         async def upload_worker(local_path: str) -> None:
             async with upload_sem:
@@ -83,10 +107,17 @@ async def process_pics(pics: list[str]) -> list[str]:
                     remote_url = storage.upload(local_path)
                     if isinstance(remote_url, str):
                         uploaded_urls.append(remote_url)
+                        log(
+                            f"process_pics upload ok local_path={local_path} remote_url={remote_url}",
+                            save=True,
+                            level="info",
+                        )
                 except Exception as e:
                     log(
                         f"Local image publish failed local_path={local_path} error={e}",
-                                            )
+                        save=True,
+                        level="error",
+                    )
 
         download_tasks = [asyncio.create_task(download_worker(url)) for url in pics]
         upload_tasks = []
@@ -94,15 +125,32 @@ async def process_pics(pics: list[str]) -> list[str]:
         for finished in asyncio.as_completed(download_tasks):
             try:
                 local_path = await finished
-            except Exception:
+            except Exception as e:
+                log(
+                    f"process_pics download worker raised error={e}",
+                    save=True,
+                    level="error",
+                )
                 continue
             if local_path and os.path.exists(local_path):
                 upload_tasks.append(asyncio.create_task(upload_worker(local_path)))
+            else:
+                log(
+                    f"process_pics skipping upload local_path_invalid={local_path}",
+                    save=True,
+                    level="warning",
+                )
 
         if not upload_tasks:
+            log("process_pics completed with zero upload tasks", save=True, level="warning")
             return []
 
         # 3 Wait for all uploads
         await asyncio.gather(*upload_tasks)
+    log(
+        f"process_pics completed input_count={len(pics)} uploaded_count={len(uploaded_urls)}",
+        save=True,
+        level="info",
+    )
 
     return uploaded_urls

@@ -9,7 +9,13 @@ from main_api.views import (
     HealthCheckView,
     ProductByEanView,
 )
-from main_api.external_views import AftercoolLoginView, RetreiveProductView, PatchProductView, DeleteProductView
+from main_api.external_views import (
+    AftercoolLoginView,
+    RetreiveProductView, 
+    PatchProductView, 
+    DeleteProductView,
+    PutProductView
+)
 from main_api.auth.views import CustomTokenObtainSlidingView
 
 urlpatterns = [
@@ -37,5 +43,6 @@ urlpatterns = [
         "products/product/ean/", RetreiveProductView.as_view(), name="retrieve_product"
     ),
     path("products/delete/<str:ean>", DeleteProductView.as_view(), name="delete_product"),
+    path("products/upload/", PutProductView.as_view(), name="put_product")
     # path("fabrics/", RetreiveProductView.as_view(), name="retrieve_fabric"),
 ]

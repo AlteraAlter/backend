@@ -71,6 +71,26 @@ try:
     _WS_PROGRESS_EVERY = max(0, int(os.getenv("WS_PROGRESS_EVERY", "0")))
 except ValueError:
     _WS_PROGRESS_EVERY = 0
+try:
+    _UPLOAD_HEARTBEAT_SEC = max(5.0, float(os.getenv("UPLOAD_HEARTBEAT_SEC", "20")))
+except ValueError:
+    _UPLOAD_HEARTBEAT_SEC = 20.0
+try:
+    _UPLOAD_STUCK_TIMEOUT_SEC = max(
+        30.0, float(os.getenv("UPLOAD_STUCK_TIMEOUT_SEC", "180"))
+    )
+except ValueError:
+    _UPLOAD_STUCK_TIMEOUT_SEC = 180.0
+try:
+    _AFTERCOOL_CB_FAIL_THRESHOLD = max(
+        1, int(os.getenv("AFTERCOOL_CB_FAIL_THRESHOLD", "5"))
+    )
+except ValueError:
+    _AFTERCOOL_CB_FAIL_THRESHOLD = 5
+try:
+    _AFTERCOOL_CB_OPEN_SEC = max(10.0, float(os.getenv("AFTERCOOL_CB_OPEN_SEC", "300")))
+except ValueError:
+    _AFTERCOOL_CB_OPEN_SEC = 300.0
 
 
 EMBEDDED_ENTITIES = ["category", "category_basic", "units"]
@@ -104,6 +124,40 @@ class KauflandController:
         }
 
         self.aftercool_base_url = "https://aftercool.de"
+        self.aftercool_failures = 0
+        self.aftercool_circuit_open_until = 0.0
+
+    def _aftercool_circuit_open(self) -> bool:
+        return time.monotonic() < self.aftercool_circuit_open_until
+
+    def _aftercool_record_success(self) -> None:
+        self.aftercool_failures = 0
+        self.aftercool_circuit_open_until = 0.0
+
+    def _aftercool_record_failure(self) -> None:
+        self.aftercool_failures += 1
+        if self.aftercool_failures >= _AFTERCOOL_CB_FAIL_THRESHOLD:
+            self.aftercool_circuit_open_until = time.monotonic() + _AFTERCOOL_CB_OPEN_SEC
+            log(
+                f"aftercool circuit opened failures={self.aftercool_failures} open_for_sec={_AFTERCOOL_CB_OPEN_SEC}",
+                save=True,
+                level="warning",
+            )
+
+    @staticmethod
+    def _as_scalar_string(value: Any) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, list):
+            for item in value:
+                if item is None:
+                    continue
+                text = str(item).strip()
+                if text:
+                    return text
+            return None
+        text = str(value).strip()
+        return text or None
 
     @staticmethod
     def _should_emit_progress(
@@ -190,64 +244,105 @@ class KauflandController:
         else:
             serialized_body = ""
 
-        # Генерируем заголовки с использованием именно serialized_body
+        retryable_statuses = {408, 409, 425, 429, 500, 502, 503, 504}
         for attempt in range(1, self.retries + 1):
             headers = await self._get_headers(url, serialized_body, method=method)
-
-            async with self.limiter:
-                await self._apply_inter_request_delay()
-                if method == "GET":
-                    async with self.session.get(
-                        url=url, headers=headers, params=params, ssl=ssl_cert
-                    ) as response:
-                        if response.status == status.HTTP_200_OK:
+            try:
+                async with self.limiter:
+                    await self._apply_inter_request_delay()
+                    if method == "GET":
+                        async with self.session.get(
+                            url=url, headers=headers, params=params, ssl=ssl_cert
+                        ) as response:
+                            if response.status == status.HTTP_200_OK:
+                                return await response.json()
+                            if response.status in retryable_statuses and attempt < self.retries:
+                                log(
+                                    f"_universal_request retry method={method} url={url} status={response.status} attempt={attempt}/{self.retries}",
+                                    save=True,
+                                    level="warning",
+                                )
+                                await asyncio.sleep(min(10, (2 ** attempt) + 0.2 * attempt))
+                                continue
+                            if response.status == status.HTTP_404_NOT_FOUND:
+                                return {
+                                    "message": "not found",
+                                    "status": status.HTTP_404_NOT_FOUND,
+                                    "data": None,
+                                }
                             return await response.json()
-                        elif response.status == status.HTTP_404_NOT_FOUND:
-                            return {
-                                "message": "not found",
-                                "status": status.HTTP_404_NOT_FOUND,
-                                "data": None,
-                            }
-                        return await response.json()
 
-                elif method == "POST":
-                    async with self.session.post(
-                        url=url, headers=headers, data=serialized_body, ssl=ssl_cert
-                    ) as response:
-                        # response.raise_for_status()
-                        return await response.json()
-                elif method == "PUT":
-                    async with self.session.put(
-                        url=url, headers=headers, data=serialized_body, ssl=ssl_cert
-                    ) as response:
-                        # response.raise_for_status()
-                        return await response.json()
-                elif method == "DELETE":
-                    async with self.session.delete(
-                        url=url, headers=headers, json=body, ssl=ssl_cert
-                    ) as response:
-                        if (
-                            response.status == 204
-                            or response.status == 200
-                            or response.status == 404
-                        ):
-                            return True
-                        elif attempt == self.retries:
+                    if method == "POST":
+                        async with self.session.post(
+                            url=url, headers=headers, data=serialized_body, ssl=ssl_cert
+                        ) as response:
+                            if response.status in retryable_statuses and attempt < self.retries:
+                                log(
+                                    f"_universal_request retry method={method} url={url} status={response.status} attempt={attempt}/{self.retries}",
+                                    save=True,
+                                    level="warning",
+                                )
+                                await asyncio.sleep(min(10, (2 ** attempt) + 0.2 * attempt))
+                                continue
+                            return await response.json()
+                    if method == "PUT":
+                        async with self.session.put(
+                            url=url, headers=headers, data=serialized_body, ssl=ssl_cert
+                        ) as response:
+                            if response.status in retryable_statuses and attempt < self.retries:
+                                log(
+                                    f"_universal_request retry method={method} url={url} status={response.status} attempt={attempt}/{self.retries}",
+                                    save=True,
+                                    level="warning",
+                                )
+                                await asyncio.sleep(min(10, (2 ** attempt) + 0.2 * attempt))
+                                continue
+                            return await response.json()
+                    if method == "DELETE":
+                        async with self.session.delete(
+                            url=url, headers=headers, json=body, ssl=ssl_cert
+                        ) as response:
+                            if response.status in (204, 200, 404):
+                                return True
+                            if response.status in retryable_statuses and attempt < self.retries:
+                                log(
+                                    f"_universal_request retry method={method} url={url} status={response.status} attempt={attempt}/{self.retries}",
+                                    save=True,
+                                    level="warning",
+                                )
+                                await asyncio.sleep(min(10, (2 ** attempt) + 0.2 * attempt))
+                                continue
                             return False
-                elif method == "PATCH":
-                    async with self.session.patch(
-                        url=url, headers=headers, data=serialized_body, ssl=ssl_cert
-                    ) as response:
-                        if response.status == 200:
-                            return {"message": "success"}
-                        elif response.status == 404:
-                            return {"message": "not found"}
-                        else:
+                    if method == "PATCH":
+                        async with self.session.patch(
+                            url=url, headers=headers, data=serialized_body, ssl=ssl_cert
+                        ) as response:
+                            if response.status == 200:
+                                return {"message": "success"}
+                            if response.status in retryable_statuses and attempt < self.retries:
+                                log(
+                                    f"_universal_request retry method={method} url={url} status={response.status} attempt={attempt}/{self.retries}",
+                                    save=True,
+                                    level="warning",
+                                )
+                                await asyncio.sleep(min(10, (2 ** attempt) + 0.2 * attempt))
+                                continue
+                            if response.status == 404:
+                                return {"message": "not found"}
                             return {
                                 "message": "something went wrong",
                                 "status": response.status,
-                                "response": response,
                             }
+            except Exception as e:
+                log(
+                    f"_universal_request exception method={method} url={url} attempt={attempt}/{self.retries} error_type={type(e).__name__} error={e!r}",
+                    save=True,
+                    level="error",
+                )
+                if attempt < self.retries:
+                    await asyncio.sleep(min(10, (2 ** attempt) + 0.2 * attempt))
+                    continue
+                raise
 
     async def _get_session(self) -> str | None:
         aftercool = AftercoolAuthService(
@@ -845,8 +940,9 @@ class KauflandController:
 
         ean = elem.get("ean")
 
-        log(f"start upload item ean={ean}")
+        log(f"start upload item ean={ean}", save=True, level="info")
         if await is_cancelled(job_id):
+            log(f"upload cancelled before validation ean={ean} job_id={job_id}", save=True, level="warning")
             return False
 
         if not ean:
@@ -865,6 +961,12 @@ class KauflandController:
             log(f"ERROR WITH PIC: elem: {elem}")
             return False
 
+        log(
+            f"validation passed ean={ean} article_present={bool(elem.get('article'))} price={elem.get('price')} pic_main_present={bool(elem.get('pic_main'))}",
+            save=True,
+            level="info",
+        )
+
         article = elem["article"]
         size = elem["size"]
         color = elem["color"]
@@ -874,6 +976,11 @@ class KauflandController:
             [elem["pic_main"]] + elem["pics"]
             if len(elem["pics"]) > 0 and elem["pics"][0]
             else [elem["pic_main"]]
+        )
+        log(
+            f"prepared source images ean={ean} total_input_images={len(total)}",
+            save=True,
+            level="info",
         )
         fabric = elem["fabric"] if elem.get("fabric") else None
 
@@ -889,27 +996,67 @@ class KauflandController:
             delivery = 40
         elif isinstance(fabric, str) and "tr" in fabric.lower() or isinstance(fabric, str) and "pl" in fabric.lower() or isinstance(fabric, str) and "it" in fabric.lower():
             delivery = 32
+        log(
+            f"delivery computed ean={ean} delivery_days={delivery} fabric={fabric}",
+            save=True,
+            level="info",
+        )
 
         ean = elem["ean"]
 
-        description_task = generate_description(article, size, color, material)
+        description_task = asyncio.create_task(
+            generate_description(article, size, color, material)
+        )
+        pics_task = asyncio.create_task(process_pics(total))
+        log(
+            f"parallel preprocessing started ean={ean} tasks=description,pics",
+            save=True,
+            level="info",
+        )
 
-        pics_task = process_pics(total)
-
-        try:
-            with log_time(f"[{ean}] generate desc + process img total"):
-                description, pics = await asyncio.gather(description_task, pics_task)
-        except Exception as e:
-            log(
-                f"generate_description/process_pics failed for EAN {ean}: {e}",
-                save=True,
-                level="error",
+        with log_time(f"[{ean}] generate desc + process img total"):
+            description_result, pics_result = await asyncio.gather(
+                description_task, pics_task, return_exceptions=True
             )
-            return False
 
-        height = elem["height"]
-        length = elem["length"]
-        width = elem["width"]
+        description_fallback = (
+            f"{article}. Size: {size}. Color: {color}. Material: {material}."
+        )
+        if isinstance(description_result, Exception):
+            log(
+                f"generate_description failed for EAN {ean}: {description_result}. Using fallback description.",
+                save=True,
+                level="warning",
+            )
+            description = description_fallback
+        else:
+            description = description_result
+
+        if isinstance(pics_result, Exception):
+            log(
+                f"process_pics failed for EAN {ean}: {pics_result}. Falling back to source image URLs.",
+                save=True,
+                level="warning",
+            )
+            pics = total
+        elif isinstance(pics_result, list) and pics_result:
+            pics = pics_result
+        else:
+            log(
+                f"process_pics returned no images for EAN {ean}. Falling back to source image URLs.",
+                save=True,
+                level="warning",
+            )
+            pics = total
+        log(
+            f"preprocessing completed ean={ean} description_len={len(str(description))} pics_count={len(pics)} fallback_desc={isinstance(description_result, Exception)} fallback_pics={not (isinstance(pics_result, list) and bool(pics_result))}",
+            save=True,
+            level="info",
+        )
+
+        height = self._as_scalar_string(elem.get("height"))
+        length = self._as_scalar_string(elem.get("length"))
+        width = self._as_scalar_string(elem.get("width"))
 
         # Получаем SSH клиент
         # with log_time("Connection to ssh"):
@@ -923,55 +1070,80 @@ class KauflandController:
         # adapt_html_description(ean, description, ssh_client, controller)
         # )
         adapt_task = None
-        log("starting html description adaptation")
+        log(f"starting html description adaptation ean={ean}", save=True, level="info")
         
         if elem.get("I_stammartikel"):
             log("<Body fetch...>", save=True, level="info")
-            url = f"{self.aftercool_base_url}/api/products/"
-            session = await self._get_session()
+            if self._aftercool_circuit_open():
+                remaining = max(0.0, self.aftercool_circuit_open_until - time.monotonic())
+                log(
+                    f"aftercool circuit open ean={ean} remaining_sec={round(remaining, 1)}; skipping html fetch",
+                    save=True,
+                    level="warning",
+                )
+                session = None
+            else:
+                session = await self._get_session()
 
             if session is None:
-                return False
+                log(
+                    f"aftercool session unavailable ean={ean}; continuing with fallback description",
+                    save=True,
+                    level="warning",
+                )
+                self._aftercool_record_failure()
+                session = None
 
-            log(
-                "Fetching product data for HTML description adaptation...",
-                save=True,
-                level="info",
-            )
-            response: dict[str, Any] = await self._get_product(
-                product_id=elem["I_stammartikel"], session_cookie=session
-            )
-            if response.get("success"):
-                items = response.get("items")
-                if not isinstance(items, list) or not items:
-                    payload = response.get("payload")
-                    if isinstance(payload, dict):
-                        payload_items = payload.get("items")
-                        if isinstance(payload_items, list):
-                            items = payload_items
+            if session:
+                log(
+                    "Fetching product data for HTML description adaptation...",
+                    save=True,
+                    level="info",
+                )
+                response: dict[str, Any] = await self._get_product(
+                    product_id=elem["I_stammartikel"], session_cookie=session
+                )
+                log(
+                    f"aftercool fetch completed ean={ean} success={bool(response.get('success'))}",
+                    save=True,
+                    level="info",
+                )
+                if response.get("success"):
+                    self._aftercool_record_success()
+                    items = response.get("items")
+                    if not isinstance(items, list) or not items:
+                        payload = response.get("payload")
+                        if isinstance(payload, dict):
+                            payload_items = payload.get("items")
+                            if isinstance(payload_items, list):
+                                items = payload_items
 
-                first_item = items[0] if isinstance(items, list) and items else {}
-                row = first_item.get("row") if isinstance(first_item, dict) else {}
-                html = row.get("Beschreibung") if isinstance(row, dict) else ""
+                    first_item = items[0] if isinstance(items, list) and items else {}
+                    row = first_item.get("row") if isinstance(first_item, dict) else {}
+                    html = row.get("Beschreibung") if isinstance(row, dict) else ""
 
-                if html:
-                    log(
-                        f"Aftercool Beschreibung received for EAN {ean} (len={len(str(html))})",
-                        save=True,
-                        level="info",
-                    )
-                    adapt_task = asyncio.create_task(
-                        adapt_html_description_v2(html=html, description=description)
-                    )
+                    if html:
+                        log(
+                            f"Aftercool Beschreibung received for EAN {ean} (len={len(str(html))})",
+                            save=True,
+                            level="info",
+                        )
+                        adapt_task = asyncio.create_task(
+                            adapt_html_description_v2(html=html, description=description)
+                        )
+                    else:
+                        log(
+                            f"Aftercool returned empty/malformed Beschreibung for EAN {ean}; using generated description fallback",
+                            save=True,
+                            level="warning",
+                        )
                 else:
                     log(
-                        f"Aftercool returned empty/malformed Beschreibung for EAN {ean}; using generated description fallback",
+                        f"aftercool fetch failed ean={ean} response={response}; continuing with fallback description",
                         save=True,
                         level="warning",
                     )
-            else:
-                log("Error happend while fetching html", save=True, level="error")
-                return False
+                    self._aftercool_record_failure()
         else:
             log("No I_stammartikel, skipping HTML description adaptation...", save=True, level="info")
 
@@ -1002,6 +1174,7 @@ class KauflandController:
             new_webtag = adapt_result
 
         if isinstance(category_result, Exception):
+            log(f"category selection failed ean={ean} error={category_result}", save=True, level="error")
             if not seo_task.done():
                 seo_task.cancel()
             return False
@@ -1011,6 +1184,11 @@ class KauflandController:
             return False
 
         category_id, category_name = category_result
+        log(
+            f"category selected ean={ean} category_id={category_id} category_name={category_name}",
+            save=True,
+            level="info",
+        )
 
         if category_id is None:
             log(f"ERROR WITH CATEGORY ID IS NONE: EAN: {ean}")
@@ -1021,6 +1199,11 @@ class KauflandController:
         except Exception as e:
             log(f"generate_seo failed for EAN {ean}: {e}")
             seo_list = []
+        log(
+            f"seo completed ean={ean} seo_items={len(seo_list) if isinstance(seo_list, list) else 0}",
+            save=True,
+            level="info",
+        )
         log(f"description prepared ean={ean} len={len(str(new_webtag))}")
         attributes = {
             "title": [article],
@@ -1037,21 +1220,24 @@ class KauflandController:
         }
 
         optional_fields = {
-            "colour": color,
+            "colour": self._as_scalar_string(color),
             "height": height,
             "length": length,
             "width": width,
             "material": (
-                material if material not in ["Stoff", "Textil"] else "Synthetic"
+                self._as_scalar_string(material)
+                if self._as_scalar_string(material) not in ["Stoff", "Textil"]
+                else "Synthetic"
             ),
             "material_composition": "No information required",
             "abnehmbarer_bezug": "No",
-            "parts_of_animal_origin": "Yes" if material == "Leder" else "No",
+            "parts_of_animal_origin": "Yes" if self._as_scalar_string(material) == "Leder" else "No",
         }
 
         for key, value in optional_fields.items():
             if value:
-                attributes[key] = [value]
+                # Kaufland expects scalar strings for these attributes.
+                attributes[key] = value
 
         json_body = {"ean": [ean], "attributes": attributes}
 
@@ -1078,6 +1264,18 @@ class KauflandController:
                 level="info",
             )
             result = await self._universal_request("PUT", url, json_body)
+            if isinstance(result, dict):
+                log(
+                    f"kaufland product-data response ean={ean} keys={list(result.keys())[:8]} data={result.get('data')}",
+                    save=True,
+                    level="info",
+                )
+            else:
+                log(
+                    f"kaufland product-data response non-dict ean={ean} type={type(result).__name__}",
+                    save=True,
+                    level="error",
+                )
 
         except Exception as e:
             log(
@@ -1093,7 +1291,13 @@ class KauflandController:
         if result.get("data") == "Content created or replaced":
             try:
                 unit_ids = await self._fetch_unit_id_by_ean(ean)
+                log(
+                    f"fetched unit_ids ean={ean} storefront_count={len(unit_ids) if isinstance(unit_ids, dict) else 0}",
+                    save=True,
+                    level="info",
+                )
             except Exception as e:
+                log(f"fetch unit_ids failed ean={ean} error={e}", save=True, level="error")
                 return False
 
             if unit_ids:
@@ -1113,15 +1317,26 @@ class KauflandController:
                 ]
                 add_result = True
                 if missing_storefronts:
+                    log(
+                        f"adding missing unit_ids ean={ean} missing_storefronts={missing_storefronts}",
+                        save=True,
+                        level="info",
+                    )
                     add_result = await self._add_unit_id(
                         ean, price, delivery, target_storefronts=missing_storefronts
                     )
 
                 overall_result = update_result and add_result
+                log(
+                    f"final existing-product result ean={ean} update_result={update_result} add_result={add_result} overall={overall_result}",
+                    save=True,
+                    level="info",
+                )
                 return overall_result
             else:
                 log("Fresh product, adding unit_id...", save=True, level="info")
                 result = await self._add_unit_id(ean, price, delivery)
+                log(f"final new-product result ean={ean} add_unit_result={result}", save=True, level="info")
                 return result
         else:
             log(f"Failed to create or replace product for EAN {ean}: {result}", save=True, level="error")
@@ -1472,6 +1687,10 @@ class KauflandController:
         if not job_id:
             job_id = uuid4().hex
         await clear_cancel(job_id)
+        logs_dir = os.path.join(settings.MEDIA_ROOT, "logs")
+        os.makedirs(logs_dir, exist_ok=True)
+        checkpoint_path = os.path.join(logs_dir, f"upload_checkpoint_{job_id}.json")
+        failed_report_path = os.path.join(logs_dir, f"upload_failed_{job_id}.json")
 
         total = len(data)
 
@@ -1479,6 +1698,10 @@ class KauflandController:
         error_count = 0
         processed_count = 0
         failed_eans = []
+        failed_items: list[dict[str, Any]] = []
+        started_at = time.time()
+        last_done_at = time.monotonic()
+        last_heartbeat_at = 0.0
 
         last_progress_emit_at = None
         work_queue: asyncio.Queue = asyncio.Queue()
@@ -1489,7 +1712,64 @@ class KauflandController:
         for _ in range(worker_count):
             await work_queue.put(None)
 
+        def _write_checkpoint() -> None:
+            remaining = max(0, total - processed_count)
+            payload = {
+                "job_id": job_id,
+                "controller": self.version,
+                "total": total,
+                "processed": processed_count,
+                "success": success_count,
+                "error": error_count,
+                "remaining": remaining,
+                "failed_eans": failed_eans,
+                "updated_at": datetime.utcnow().isoformat() + "Z",
+            }
+            try:
+                with open(checkpoint_path, "w", encoding="utf-8") as f:
+                    json.dump(payload, f, ensure_ascii=False, indent=2)
+            except Exception as e:
+                log(
+                    f"checkpoint write failed job_id={job_id} path={checkpoint_path} error_type={type(e).__name__} error={e!r}",
+                    save=True,
+                    level="error",
+                )
+
+        def _write_failed_report() -> None:
+            payload = {
+                "job_id": job_id,
+                "controller": self.version,
+                "created_at": datetime.utcnow().isoformat() + "Z",
+                "total": total,
+                "processed": processed_count,
+                "success": success_count,
+                "error": error_count,
+                "failed_count": len(failed_items),
+                "failed_items": failed_items,
+            }
+            try:
+                with open(failed_report_path, "w", encoding="utf-8") as f:
+                    json.dump(payload, f, ensure_ascii=False, indent=2)
+            except Exception as e:
+                log(
+                    f"failed report write failed job_id={job_id} path={failed_report_path} error_type={type(e).__name__} error={e!r}",
+                    save=True,
+                    level="error",
+                )
+
         async def run_upload_worker():
+            item_retry_attempts = max(1, int(os.getenv("UPLOAD_ITEM_RETRY_ATTEMPTS", "2")))
+
+            def _is_timeout_like(exc: Exception) -> bool:
+                timeout_names = {
+                    "TimeoutError",
+                    "ReadTimeout",
+                    "ConnectTimeout",
+                    "ClientTimeoutError",
+                    "ServerTimeoutError",
+                }
+                return type(exc).__name__ in timeout_names
+
             while True:
                 item = await work_queue.get()
                 if item is None:
@@ -1498,24 +1778,43 @@ class KauflandController:
 
                 ok = False
                 ean = None
-                try:
-                    if await is_cancelled(job_id):
-                        ok = False
-                    else:
+                timeout_error: Exception | None = None
+                for attempt in range(1, item_retry_attempts + 1):
+                    try:
+                        if await is_cancelled(job_id):
+                            ok = False
+                            break
                         if isinstance(item, dict):
                             raw_ean = item.get("ean")
                             ean = str(raw_ean).strip() if raw_ean is not None else None
-                        ok = bool(
-                            await self._create_product(item, job_id, self.version)
+                        ok = bool(await self._create_product(item, job_id, self.version))
+                        break
+                    except Exception as e:
+                        timeout_error = e
+                        if _is_timeout_like(e) and attempt < item_retry_attempts:
+                            delay = min(10, (2 ** attempt))
+                            log(
+                                f"upload retry timeout ean={ean} attempt={attempt}/{item_retry_attempts} delay_s={delay} error_type={type(e).__name__}",
+                                save=True,
+                                level="warning",
+                            )
+                            await asyncio.sleep(delay)
+                            continue
+                        log(
+                            f"upload unexpected error ean={ean} attempt={attempt}/{item_retry_attempts} error_type={type(e).__name__} error={e!r}",
+                            save=True,
+                            level="error",
                         )
-                except Exception as e:
+                        ok = False
+                        break
+                if timeout_error and not ok and _is_timeout_like(timeout_error):
                     log(
-                        f"upload unexpected error ean={ean} error={e}",
+                        f"upload item failed after timeout retries ean={ean} attempts={item_retry_attempts}",
+                        save=True,
+                        level="warning",
                     )
-                    ok = False
-                finally:
-                    await done_queue.put((item, ok))
-                    work_queue.task_done()
+                await done_queue.put((item, ok))
+                work_queue.task_done()
 
         if job_id:
             await register_running_job(job_id)
@@ -1531,6 +1830,32 @@ class KauflandController:
                         await asyncio.gather(*workers, return_exceptions=True)
                         
                     return False
+                now = time.monotonic()
+                if now - last_heartbeat_at >= _UPLOAD_HEARTBEAT_SEC:
+                    queued = work_queue.qsize()
+                    done_pending = done_queue.qsize()
+                    elapsed = round(time.time() - started_at, 1)
+                    log(
+                        f"upload heartbeat job_id={job_id} processed={processed_count}/{total} success={success_count} error={error_count} queue={queued} done_queue={done_pending} elapsed_s={elapsed}",
+                        save=True,
+                        level="info",
+                    )
+                    last_heartbeat_at = now
+                if now - last_done_at > _UPLOAD_STUCK_TIMEOUT_SEC:
+                    queued = work_queue.qsize()
+                    done_pending = done_queue.qsize()
+                    log(
+                        f"upload stuck watchdog triggered job_id={job_id} no_progress_for_sec={round(now-last_done_at,1)} queue={queued} done_queue={done_pending}",
+                        save=True,
+                        level="error",
+                    )
+                    for worker in workers:
+                        worker.cancel()
+                    if workers:
+                        await asyncio.gather(*workers, return_exceptions=True)
+                    _write_checkpoint()
+                    _write_failed_report()
+                    return False
                 try:
                     item, ok = await asyncio.wait_for(done_queue.get(), timeout=0.25)
                     
@@ -1539,6 +1864,7 @@ class KauflandController:
 
                 result_list.append(ok)
                 processed_count += 1
+                last_done_at = time.monotonic()
                 current_ean = item.get("ean") if isinstance(item, dict) else None
                 
                 if ok:
@@ -1548,12 +1874,20 @@ class KauflandController:
                     error_count += 1
                     if current_ean is not None:
                         failed_eans.append(str(current_ean))
+                    failed_items.append(
+                        {
+                            "ean": str(current_ean) if current_ean is not None else None,
+                            "item": item if isinstance(item, dict) else None,
+                            "failed_at": datetime.utcnow().isoformat() + "Z",
+                        }
+                    )
 
                 log(
                     f"upload progress processed={processed_count}/{total} success={success_count} error={error_count}",
                     save=True,
                     level="info",
                 )
+                _write_checkpoint()
                     
             if workers:
                 await asyncio.gather(*workers, return_exceptions=True)
@@ -1564,11 +1898,20 @@ class KauflandController:
                 
             if workers:
                 await asyncio.gather(*workers, return_exceptions=True)
+            _write_checkpoint()
+            _write_failed_report()
             return False
         
         finally:
             if job_id:
                 await unregister_running_job(job_id)
+        _write_checkpoint()
+        _write_failed_report()
+        log(
+            f"upload artifacts job_id={job_id} checkpoint={checkpoint_path} failed_report={failed_report_path}",
+            save=True,
+            level="info",
+        )
                 
         if all(result_list):  # Все успешно
             return True

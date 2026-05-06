@@ -11,7 +11,11 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
 from main_api.serializers import RetrieveProductSerializer
-from main_api.external_serializer import DeleteDataSerializer, ProductDataSerializer
+from main_api.external_serializer import (
+    DeleteDataSerializer, 
+    ProductDataSerializer,
+    PutDataSerializer
+    )
 from main_api.services.aftercool_service import (
     AftercoolAuthError,
     AftercoolTransportError,
@@ -20,8 +24,10 @@ from main_api.services.aftercool_service import (
 from main_api.services.aftercool_price_sync_service import AftercoolPriceSyncService
 from main_api.src.controller.kaufland_controller import KauflandController
 from main_api.src.controller.rest_api_controller import RestApiController
+from main_api.src.gpt.gpt_helper import generate_seo
 from main_api.src.job_registry import clear_cancel, is_cancelled, register_running_job, unregister_running_job
 from main_api.src.logger import log
+from config import storefronts
 
 
 try:
@@ -29,6 +35,24 @@ try:
 except ValueError:
     MAX_CONCURRENT_JOBS = 3
 JOB_SEMAPHORE = asyncio.Semaphore(MAX_CONCURRENT_JOBS)
+
+def get_product_safety_contact(controller):
+    jv = {
+        "name": "",
+        "email_address": "",
+        "phone_number": "",
+        "address": "",
+        "url": ""
+    }
+    xl = {
+        "name": "",
+        "email_address": "",
+        "phone_number": "",
+        "address": "",
+        "url": ""
+    }
+
+    return jv if controller == "jv" else xl
 
 
 async def _send_aftercool_sync_progress(
@@ -394,7 +418,6 @@ class PatchProductView(APIView):
         return "de-DE"
 
 
-
 class DeleteProductView(APIView):
     serializer_class = DeleteDataSerializer
     permission_classes = [AllowAny]
@@ -425,4 +448,143 @@ class DeleteProductView(APIView):
                     
             return Response({"result": result}, status=status.HTTP_200_OK)
         
+
+class PutProductView(APIView):
+    serializer_class = PutDataSerializer
+    permission_classes = [AllowAny]
+    
+    async def get(self, request):
+        return Response({"method": "GET", "message": "ok"}, status=status.HTTP_200_OK)
+    
+    
+    async def put(self, request):
+        serializer = self.serializer_class(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        validated_data = serializer.validated_data
+        
+        # Main body
+        ean = validated_data["ean"]
+        controller = validated_data["controller"]
+        
+        price = validated_data["price"]
+        size = validated_data["size"]
+        color = validated_data["color"]
+        material = validated_data["material"]
+        delivery = validated_data["delivery"]
+        
+        height = validated_data["height"]
+        length = validated_data["length"]
+        width = validated_data["width"]
+        
+        # Attributes
+        attributes = {
+            "title": [validated_data["title"]],
+            "description": [validated_data["description"]],
+            "pictures": [validated_data["picture"]],
+            "product_safety_contact": get_product_safety_contact(controller) 
+        }
+        
+        # Short description generation
+        try: 
+            seo_list = await generate_seo(
+                article=attributes["title"][0],
+                size = size,
+                color = color,
+                material = material
+            )
+        except Exception as e:
+            seo_list = []
+            
+        attributes["short_description"] = seo_list
+        
+        category_selector_data = {
+            "item": {
+                "title": attributes["title"][0],
+                "description": attributes["description"][0],
+                "manufacturer": "AEA GmbH & Co. KG",
+            },
+            "price": price
+        }
+        
+        result = {}
+        # Category selector
+        async with aiohttp.ClientSession() as client:
+            try:
+                rac = RestApiController(controller, client)
+                endpoint = "/categories/decide?storefront=de&locale=de-DE"
+                response = await rac.send_request("POST", endpoint, json=category_selector_data)
+            except Exception as e:
+                return Response({"success": False, "data": {"category": {"status": "failed"}}, "errors": e})
+            
+            category_name = response["data"][0]["name"]
+            category_id = response["data"][0]["id_category"]
+            result["data"]["category"] = category_name
+            result["success"] = True
+
+        attributes["category"] = [category_name]
+        attributes["category_detail"] = {
+            "id": category_id,
+            "title": category_name,
+            "name": category_name,
+        }
+        attributes["width"] = width
+        attributes["length"] = length
+        attributes["height"] = height
+        attributes["material"] = material
+        attributes["colour"] = color
+        attributes["size"] = size
+        
+        # Product data creation
+        product_data = {
+            "ean": ean,
+            "attributes": attributes,
+        }
+        async with aiohttp.ClientSession() as client:
+            try:
+                rac = RestApiController(controller, client)
+                endpoint = "/product-data"
+                response = await rac.send_request("PUT", endpoint, json=product_data)
+
+            except Exception as e:
+                return Response({"success": False, "data": {"product": {"status": "failed"}}, "errors": e})
+            
+        result["data"]["product-data"] = response
+        result["success"] = True
+        
+        # Unit creation
+        unit_data = {
+            "amout": 20,
+            "handling_time": delivery,
+            "listing_price": price,
+            "minimum_price": price,
+            "ean": ean,
+            "id_offer": ean,
+            "condition": "NEW"
+        }
+        async with aiohttp.ClientSession() as client:
+            rac = RestApiController(controller, client)
+            for storefront in storefronts:
+                try:
+                    endpoint = f"/units?storefront={storefront}&embedded=eco_participation"
+                    response = await rac.send_request("POST", endpoint, json=unit_data)
+                    
+                except Exception as e:
+                    result["errors"] = {**result.get("errors", {}), "storefront": {f"{storefront}": False, "detail": e}}
+                    continue
+                
+                finally:
+                    result["data"]["offer"] = {**result.get("data", {}).get(f"offer", {}), "statuses": {f"{storefront}": "created"}}
+
+        if len(result["data"]["offer"]["statuses"]) == 7 and all([status == "created" for status in result["data"]["offer"]["statuses"]["storefront"]]):
+            result["data"]["offer"] = {**result.get("data", {}).get("offer", {}), "status": "success"}
+            return Response({"result": result}, status=status.HTTP_201_CREATED)
+        
+        elif len(result["data"]["offer"]["statuses"]) != 7 and all([status == "created" for status in result["data"]["offer"]["statuses"]["storefront"]]):
+            result["data"]["offer"] = {**result.get("data", {}).get("offer", {}), "status": "partial success"}
+            return Response({"result": result, "completed": "partial"}, status=status.HTTP_201_CREATED)
+        
+        else:
+            result["data"]["offer"] = {**result.get("data", {}).get("offer", {}), "status": "failed"}
+            return Response({"result": result, "completed": "none"}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
         
